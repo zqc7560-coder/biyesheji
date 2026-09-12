@@ -17,6 +17,10 @@ const store = useUserStore()
       <el-card shadow="hover" class="entry" @click="router.push('/user/articles')">
         <h3>📚 我的文章</h3><p>草稿箱与已发布管理</p>
       </el-card>
+      <!-- M5：我的评论入口（UC-U-12；待审/被屏蔽状态在页内有标签可见） -->
+      <el-card shadow="hover" class="entry" @click="router.push('/user/comments')">
+        <h3>💬 我的评论</h3><p>发言记录与审核状态</p>
+      </el-card>
       <el-card shadow="hover" class="entry" @click="router.push('/user/articles/new')">
         <h3>✍ 写文章</h3><p>Markdown 编辑器（实时预览 / 自动草稿兜底）</p>
       </el-card>

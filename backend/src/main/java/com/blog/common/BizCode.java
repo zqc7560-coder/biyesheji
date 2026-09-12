@@ -57,6 +57,8 @@ public enum BizCode {
     TAG_NOT_FOUND(2202, "标签不存在"),
     COMMENT_NOT_ALLOWED(2301, "文章不允许评论"),
     COMMENT_PARENT_INVALID(2302, "父评论不存在或层级超限"),
+    /** M5：评论 id 不存在/已删除（删除与审核入口共用；与 2202 标签不存在同族语义，已同步 API 文档 §1.4） */
+    COMMENT_NOT_FOUND(2303, "评论不存在"),
 
     // ---------- 文件（3xxx） ----------
     FILE_TYPE_INVALID(3001, "文件类型不合法"),

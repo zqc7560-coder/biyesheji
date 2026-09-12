@@ -12,6 +12,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchArticle, changeArticleStatus, deleteArticle } from '@/api/article'
+import CommentSection from '@/views/CommentSection.vue'
 import { renderMarkdown, extractToc, injectTocIds } from '@/utils/markdown'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -112,6 +113,9 @@ watch(() => route.params.id, load)
           </a>
         </nav>
       </div>
+
+      <!-- M5：评论区（两级嵌套 + 发表/删除）；allowComment 闸门与审核态由服务端裁决 -->
+      <CommentSection :article="article" />
     </template>
   </main>
 </template>

@@ -74,7 +74,10 @@ public class SecurityConfig {
                                 "/api/users/*/articles",
                                 // M4：分类树与标签列表/标签云是公开导航数据（UC-V-06），
                                 // 只放行 GET——写口全部走 @PreAuthorize(category/tag:manage)
-                                "/api/categories", "/api/tags").permitAll()
+                                "/api/categories", "/api/tags",
+                                // M5：评论区是公开阅读面（UC-V-03），只放行 GET；
+                                // POST/DELETE 走登录默认拒，mine=1 在 Controller 显式拦匿名
+                                "/api/comments").permitAll()
                         // HTTP OPTIONS 预检不带 Authorization 头，必须放行否则跨域调试全挂
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

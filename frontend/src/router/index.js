@@ -32,7 +32,9 @@ const routes = [
       { path: 'articles', name: 'MyArticles', component: () => import('@/views/MyArticleListView.vue'), meta: { title: '我的文章', requiresAuth: true } },
       // 编辑器：new 与 :id/edit 复用同一组件（组件内按 route.params.id 区分新建/编辑态）
       { path: 'articles/new', name: 'ArticleNew', component: () => import('@/views/ArticleEditView.vue'), meta: { title: '写文章', requiresAuth: true } },
-      { path: 'articles/:id/edit', name: 'ArticleEdit', component: () => import('@/views/ArticleEditView.vue'), meta: { title: '编辑文章', requiresAuth: true } }
+      { path: 'articles/:id/edit', name: 'ArticleEdit', component: () => import('@/views/ArticleEditView.vue'), meta: { title: '编辑文章', requiresAuth: true } },
+      // M5：我的评论（UC-U-12 列表部分；含待审/被屏蔽态，对自己透明）
+      { path: 'comments', name: 'MyComments', component: () => import('@/views/MyCommentListView.vue'), meta: { title: '我的评论', requiresAuth: true } }
     ]
   },
   {
@@ -55,7 +57,9 @@ const routes = [
       { path: 'articles', name: 'AdminArticles', component: () => import('@/views/admin/AdminArticleView.vue'), meta: { title: '文章管理 - 管理后台' } },
       // M4：分类/标签治理页（UC-A-03/04），menu.js 声明的 categories/tags 入口落地
       { path: 'categories', name: 'AdminCategories', component: () => import('@/views/admin/AdminCategoryView.vue'), meta: { title: '分类管理 - 管理后台' } },
-      { path: 'tags', name: 'AdminTags', component: () => import('@/views/admin/AdminTagView.vue'), meta: { title: '标签管理 - 管理后台' } }
+      { path: 'tags', name: 'AdminTags', component: () => import('@/views/admin/AdminTagView.vue'), meta: { title: '标签管理 - 管理后台' } },
+      // M5：评论审核页（UC-A-05），menu.js 声明的 comments 入口落地
+      { path: 'comments', name: 'AdminComments', component: () => import('@/views/admin/AdminCommentView.vue'), meta: { title: '评论审核 - 管理后台' } }
     ]
   }
 ]
