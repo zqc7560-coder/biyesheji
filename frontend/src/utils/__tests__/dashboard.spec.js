@@ -3,7 +3,7 @@
  * 页面本身不上 jsdom（决策沿用 vite.config.js：被测逻辑全部纯函数）。
  */
 import { describe, it, expect } from 'vitest'
-import { maxOf, barHeights, dashboardCards, shortDate } from '../dashboard'
+import { maxOf, barHeights, dashboardCards, shortDate, cacheStatsRows } from '../dashboard'
 
 const pts = (...vals) => vals.map((v, i) => ({ date: `2026-09-1${i}`, value: v }))
 
@@ -71,5 +71,28 @@ describe('shortDate', () => {
     expect(shortDate('9-13')).toBe('9-13')
     expect(shortDate('')).toBe('')
     expect(shortDate(null)).toBe('')
+  })
+})
+
+describe('cacheStatsRows (M9)', () => {
+  it('六键族全列出，缺失键回 0（后端 Redis 故障回空 Map 不炸页面）', () => {
+    const rows = cacheStatsRows({})
+    expect(rows.map((r) => r.key)).toEqual([
+      'detailKeys', 'listKeys', 'listIndexMembers', 'pvKeys', 'pvDayKeys', 'evictRetryPending'])
+    expect(rows.every((r) => r.value === 0)).toBe(true)
+    const full = cacheStatsRows({ detailKeys: 3, listKeys: 2, listIndexMembers: 2,
+      pvKeys: 1, pvDayKeys: 7, evictRetryPending: 0 })
+    expect(full[0].value).toBe(3)
+    expect(full.every((r) => !r.alert)).toBe(true)
+  })
+  it('补偿队列 >0 单独亮 alert（Redis 抖动信号，管理员必须看见）', () => {
+    const rows = cacheStatsRows({ evictRetryPending: 2 })
+    const retry = rows.find((r) => r.key === 'evictRetryPending')
+    expect(retry.alert).toBe(true)
+    expect(rows.filter((r) => r.alert)).toHaveLength(1)
+  })
+  it('null/脏值防御：非数值键降级 0 而非 NaN', () => {
+    expect(cacheStatsRows(null)[0].value).toBe(0)
+    expect(cacheStatsRows({ detailKeys: 'abc' })[0].value).toBe(0)
   })
 })

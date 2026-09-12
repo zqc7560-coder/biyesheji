@@ -34,6 +34,12 @@ public class TagService {
 
     private final TagMapper tagMapper;
     private final ArticleTagMapper articleTagMapper;
+    /**
+     * M9：标签名/存续状态进文章详情与列表 VO（TagBrief），改标签=改文章的公开视图。
+     * 受影响文章理论可枚举（article_tag 反查），但列表键无法精准定位（md5 不可逆），
+     * 治理动作低频，一律 evictAll 全量失效——见 ArticleCacheService#evictAll 的取舍论证。
+     */
+    private final com.blog.module.article.service.ArticleCacheService articleCache;
 
     /** 默认主题色：与 Element Plus 主色一致（DDL 列默认值同款，两处同值便于对照） */
     private static final String DEFAULT_COLOR = "#409EFF";
@@ -93,6 +99,7 @@ public class TagService {
             uw.set(Tag::getColor, dto.getColor());
         }
         tagMapper.update(null, uw);
+        articleCache.evictAll(); // M9：改名/改色波及所有挂载文章的公开视图，全量失效
         return toVO(require(id), false, 0);
     }
 
@@ -109,6 +116,7 @@ public class TagService {
         articleTagMapper.delete(new LambdaQueryWrapper<com.blog.module.article.entity.ArticleTag>()
                 .eq(com.blog.module.article.entity.ArticleTag::getTagId, id));
         tagMapper.deleteById(id);
+        articleCache.evictAll(); // M9：解关联波及所有挂载文章的 tags 字段，全量失效
     }
 
     /**
@@ -159,6 +167,7 @@ public class TagService {
         recountTag(from.getId());           // from 归零（先算后删行，让计数变更留痕在已删行上也无害）
         recountTag(req.getToTagId());
         tagMapper.deleteById(from.getId());
+        articleCache.evictAll(); // M9：合并波及 from/to 全部载体文章的 tags 字段，全量失效
         return toVO(require(req.getToTagId()), false, 0);
     }
 

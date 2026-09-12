@@ -274,6 +274,9 @@
 | GET | /api/system/config | 站点公开参数（site_name/logo/备案号/注册开关） | 公开 |
 | PUT | /api/admin/system/config | 批量修改 `{items:[{key,value}]}` | ADMIN |
 | GET | /api/admin/dashboard | 仪表盘聚合（文章/用户/评论数、7 日 PV 趋势、AI 调用次数） | ADMIN |
+| GET | /api/admin/cache/stats | 缓存健康度（各键族数量/失效补偿队列深度）(M9) | ADMIN |
+| DELETE | /api/admin/cache | 一键清空展示缓存，返回 `{deleted:12}` (M9，R-04 应急口) | ADMIN |
+| POST | /api/admin/cache/pv-sync | 手动触发一轮 PV 回写+补偿排空，返回 `{applied,totalDelta,recovered}`（M9；任务幂等，重复触发不双计） | ADMIN |
 | POST | /api/files/upload | multipart `file`+`type`(article/cover/avatar)；≤5MB；白名单 image/png,jpeg,webp,gif | 登录 |
 | GET | /api/admin/users | 用户分页 `?keyword&status` | ADMIN |
 | PATCH | /api/admin/users/{id}/status | 启禁（禁用即拉黑其登录态） | ADMIN |

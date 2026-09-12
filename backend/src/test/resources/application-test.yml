@@ -39,6 +39,13 @@ blog:
   ai:
     master-key: 000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f
     key-file: ./nonexistent-test-only.env
+  # M9：测试内禁用 PV 回写的自动调度（初始延迟 24h=事实上永不触发）。
+  # 动机：整套测试跑数分钟，若 5min 节拍的回写任务在断言中途乱入，
+  # view_count 会"自己涨"——调度行为由测试直接调 syncNow() 显式驱动，
+  # 消除"调度线程与断言赛跑"这类假阳性（PvSyncJob 注释同义）。
+  pv:
+    initial-delay-ms: 86400000
+    sync-interval-ms: 86400000
 BLOG_AI_KEY_DEEPSEEK: ""
 BLOG_AI_KEY_QWEN: ""
 

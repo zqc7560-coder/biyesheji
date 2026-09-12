@@ -35,6 +35,12 @@ import java.util.stream.Collectors;
 public class CategoryService {
 
     private final CategoryMapper categoryMapper;
+    /**
+     * M9：分类名进文章详情/列表 VO（CategoryBrief），改名波及全部挂载文章——
+     * 与 TagService 同一论证：治理动作低频、列表键不可精准定位，evictAll 全量失效。
+     * （删除口不用挂失效：2101 守卫保证"有文章的分类删不掉"，公开视图不受影响。）
+     */
+    private final com.blog.module.article.service.ArticleCacheService articleCache;
 
     /**
      * GET /api/categories —— 分类树（公开，UC-V-06 导航数据源）。
@@ -132,6 +138,7 @@ public class CategoryService {
         patch.setDescription(dto.getDescription());   // 描述清空传 "" 即可：MP null-skip 只认 null
         patch.setUpdatedAt(LocalDateTime.now());
         categoryMapper.updateById(patch);
+        articleCache.evictAll(); // M9：改名/换父波及挂载文章的 CategoryBrief，全量失效
         return toNode(require(id));   // 回读返回最新态（updateById 对 null 列不更新，本地对象并不等于库内值）
     }
 

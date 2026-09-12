@@ -31,11 +31,13 @@ import java.util.TreeMap;
  * 的返回类型与格式存在方言漂移（DATETIME vs DATE、有无时分秒），Java 端
  * getModifiedDate 分桶两库行为恒等，测试即真值。
  *
- * <p>关于"7 日 PV 趋势"（API 文档措辞）：浏览明细的唯一数据源是 Redis
- * blog:pv:{id} 计数器 + M9 定时回写 article.view_count，本期没有"按日 PV"的
- * 存储结构（view_count 是累计值不是时序）。与其造假一条线，本接口把 pvTrend
- * 回成全 0 并在 note 字段声明口径，M9 落地每日快照（或在回写任务里顺带写
- * pv:day:{yyyyMMdd} 计数键）后填充真实数据——前端图区读 note 展示，答辩可讲。
+ * <p>关于"7 日 PV 趋势"：M9 落地后数据源是 Redis blog:pvday:{yyyyMMdd} 按日计数键
+ * （详情页每次浏览 INCR，见 ArticleCacheService#countPv）。读侧直接 peek 当日键现值，
+ * <b>不做"取走归零"</b>——仪表盘是只读消费者，归零职责在 PvSyncJob 的 TTL 续期，
+ * 两边都要动同一个键就会打架。pvday 键 10 天 TTL（refreshDayPvTtl 治理）天然覆盖
+ * 7 日窗口；Redis 不可用时全部回 0 ——与 M8 占位行为一致，页面 note 口径统一说明。
+ * totalPv 的口径升级：view_count 存量 + 尚未回写的 blog:pv:* 增量 = 用户看到的
+ * "实时总浏览"，否则前台详情页 PV 已涨而看板总数不动，两处对不上会被当 bug。
  */
 @Service
 @RequiredArgsConstructor
@@ -48,6 +50,8 @@ public class DashboardService {
     private final SysUserMapper userMapper;
     private final CommentMapper commentMapper;
     private final AiCallLogMapper aiCallLogMapper;
+    /** M9：PV 趋势/实时增量的 Redis 读口（叶子组件，无环；异常在方法内各自吞，统计缺数好过 500） */
+    private final com.blog.module.article.service.ArticleCacheService articleCache;
 
     /** 聚合快照（每请求现算，ADMIN 低频访问不加缓存；若后台页被挂轮询再随 M9 缓存化） */
     public DashboardVo snapshot() {
@@ -93,13 +97,21 @@ public class DashboardService {
             aiTrend.add(DashboardVo.DayPoint.builder()
                     .date(d.toString()).value(agg == null ? 0L : agg[0]).build());
         }
+        // PV 趋势（M9 真实化）：逐日 peek blog:pvday:{yyyyMMdd}。
+        // 日期格式必须与 countPv 写入侧同为 BASIC_ISO_DATE（yyyyMMdd 无横杠）——
+        // 两侧格式漂移就是"永远查不到键"的静默零序列，所以这里显式用同一个常量类。
+        java.time.format.DateTimeFormatter dayFmt = java.time.format.DateTimeFormatter.BASIC_ISO_DATE;
         List<DashboardVo.DayPoint> pvTrend = new ArrayList<>(TREND_DAYS);
         for (int i = TREND_DAYS - 1; i >= 0; i--) {
+            LocalDate d = LocalDate.now().minusDays(i);
             pvTrend.add(DashboardVo.DayPoint.builder()
-                    .date(LocalDate.now().minusDays(i).toString()).value(0L).build());
+                    .date(d.toString())
+                    .value(articleCache.peekDayPv(d.format(dayFmt)))
+                    .build());
         }
 
-        // 总浏览量：view_count 现值求和（M9 回写前它是存量基线，回写后自动生长）
+        // 总浏览量：view_count 存量（已回写） + blog:pv:* 未回写增量（M9 实时口径）。
+        // 增量部分逐键 peek（键量级=5 分钟内被浏览的文章数，个位到十位，无压力）。
         Long totalPv = 0L;
         List<Article> pvRows = articleMapper.selectList(new LambdaQueryWrapper<Article>()
                 .select(Article::getViewCount));
@@ -107,6 +119,10 @@ public class DashboardService {
             if (a.getViewCount() != null) {
                 totalPv += a.getViewCount();
             }
+        }
+        for (String k : articleCache.scanKeys(
+                com.blog.module.article.service.ArticleCacheService.PV_PREFIX + "*")) {
+            totalPv += articleCache.peekCounter(k);
         }
         counts.setAiCalls7d(ai7d);
         counts.setAiCost7d(cost7d.setScale(4, RoundingMode.HALF_UP));
@@ -117,7 +133,8 @@ public class DashboardService {
                 .pvTrend(pvTrend)
                 .totalPv(totalPv)
                 .note("AI 趋势来自 ai_call_log 全口径（含缓存命中与失败）；"
-                        + "PV 按日时序依赖 M9 浏览计数回写体系，当前为占位零序列。")
+                        + "PV 按日时序来自 Redis blog:pvday 计数键（实时未回写），"
+                        + "累计浏览=view_count 存量+未回写增量；Redis 不可用时 PV 两项回 0。")
                 .build();
     }
 }

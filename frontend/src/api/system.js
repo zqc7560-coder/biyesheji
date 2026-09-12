@@ -28,3 +28,18 @@ export function updateSystemConfig(items) {
 export function fetchDashboard() {
   return request.get('/admin/dashboard')
 }
+
+/** GET /api/admin/cache/stats → { detailKeys, listKeys, ... }（M9 缓存健康度） */
+export function fetchCacheStats() {
+  return request.get('/admin/cache/stats')
+}
+
+/** DELETE /api/admin/cache → { deleted, note }（M9 一键清展示缓存，R-04 应急口） */
+export function clearDisplayCache() {
+  return request.delete('/admin/cache')
+}
+
+/** POST /api/admin/cache/pv-sync → { applied, totalDelta, recovered }（M9 手动触发一轮 PV 回写，幂等） */
+export function triggerPvSync() {
+  return request.post('/admin/cache/pv-sync')
+}

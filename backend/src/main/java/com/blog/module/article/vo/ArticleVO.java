@@ -24,6 +24,18 @@ import java.util.List;
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
+// M9 缓存回环说明（含两次实测修正，均由 ArticleCacheRoundTripM9Test 钉死）：
+// 详情缓存 blog:article:{id} 要把本 VO 序列化进 Redis 再读回来，反序列化对
+// 构造器的要求就两条路，前两条都被堵死过：
+//  ① @JsonDeserialize(builder=ArticleVOBuilder.class) —— 失败：Lombok builder
+//     的链式方法不被 Jackson 默认内省识别（"0 known properties"，静默回吐空对象，
+//     NON_NULL 下接口层表现为 data={}——命中路径整体丢字段）；
+//  ② 裸 @Data @Builder —— 失败：类上一旦有 @Builder，Lombok 不再合成无参构造
+//     （只留 builder 用的全参构造），Jackson "no Creators" 直接抛 InvalidDefinition。
+// 正解 = ③ 显式 @NoArgsConstructor（给 Jackson 建对象）+ @AllArgsConstructor
+// （把 @Builder 藏起来的那个全参构造恢复成 public，字段赋值语义不变）。
+@lombok.NoArgsConstructor
+@lombok.AllArgsConstructor
 public class ArticleVO {
 
     /** 文章 ID */
@@ -87,6 +99,9 @@ public class ArticleVO {
     @Data
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    // M9：缓存回环需要（论证同外层 ArticleVO）
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
     public static class AuthorBrief {
         private Long id;
         private String nickname;
@@ -97,6 +112,9 @@ public class ArticleVO {
     @Data
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    // M9：缓存回环需要（论证同外层 ArticleVO）
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
     public static class CategoryBrief {
         private Long id;
         private String name;
@@ -106,6 +124,9 @@ public class ArticleVO {
     @Data
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    // M9：缓存回环需要（论证同外层 ArticleVO）
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
     public static class TagBrief {
         private Long id;
         private String name;

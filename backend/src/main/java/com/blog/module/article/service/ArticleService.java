@@ -64,6 +64,12 @@ public class ArticleService {
     private final CategoryMapper categoryMapper;
     private final TagMapper tagMapper;
     private final SysUserMapper userMapper;
+    /**
+     * M9 热点缓存（《系统设计.md》§3.2 时序图的 Redis 两步）。
+     * ArticleCacheService 是叶子组件（只依赖 Redis/ObjectMapper，不回指任何 Service），
+     * 构造注入无环；若日后缓存需要回读业务数据，届时按 M7 教训改用 ObjectProvider 断环。
+     */
+    private final ArticleCacheService articleCache;
 
     /** 状态常量（DDL 注释：0 草稿 / 1 已发布 / 2 下线）——用常量代替魔法数字，状态机矩阵可读 */
     public static final int STATUS_DRAFT = 0;
@@ -98,6 +104,19 @@ public class ArticleService {
      * 反过来就是：先跑通 LIKE，压测不达标再升级 FTS，避免为未验证的性能预付复杂度）。
      */
     public PageResult<ArticleVO> pageArticles(ArticleQuery query) {
+        // ---------- M9 列表缓存（只覆盖"公开列表"分支） ----------
+        // mine/adminScope 视图带身份维度：进缓存要么按用户炸键、要么把治理视图
+        // （含草稿）吐给别的请求——正确性风险远大于收益，一律绕开缓存直查。
+        boolean cacheable = !query.mine && !query.adminScope;
+        String cacheKey = null;
+        if (cacheable) {
+            cacheKey = articleCache.listKey(canonicalListParams(query));
+            ArticleCacheService.CachePage hit = articleCache.getList(cacheKey);
+            if (hit != null) {
+                return new PageResult<>(hit.total(), hit.pages(), hit.pageNum(), hit.pageSize(), hit.list());
+            }
+        }
+
         LambdaQueryWrapper<Article> qw = selectWithoutBody();
 
         if (query.mine) {
@@ -146,24 +165,72 @@ public class ArticleService {
                 qw); // 注意：必须传带条件的 qw 本体（此前误传新建的 selectWithoutBody() 把条件整体丢弃，全量泄库——列裁剪已在方法开头合并进 qw）
 
         List<ArticleVO> vos = toBriefVOList(page.getRecords());
+        if (cacheable) {
+            // 回填（含空页）：空结果同样值得缓存——"搜一个不存在的关键词"被反复打
+            // 是不少见的滥用形态，缓存空页把这类查询的成本封在 Redis 里。
+            // 只回写"本次读"命中的键；写失败在 putList 内部吞掉，不影响响应。
+            articleCache.putList(cacheKey, new ArticleCacheService.CachePage(
+                    page.getTotal(), page.getPages(), page.getCurrent(), page.getSize(), vos));
+        }
         return new PageResult<>(page.getTotal(), page.getPages(),
                 page.getCurrent(), page.getSize(), vos);
     }
 
     /**
-     * 详情（GET /api/articles/{id}）：可见性判定 + 作者/分类/标签聚合。
+     * 列表查询参数 → 规范化串（缓存键的原料）。
+     * 逐字段显式拼接而不是 query.toString()：字段顺序、null 的表示（"-"/"null"）
+     * 都必须稳定——键不稳定就等于缓存不命中。pageSize 已被 Controller 钳在 1~100，
+     * 不会造成键爆炸的是 keyword（用户输入），但它每值一个键、TTL 5min 自然淘汰，
+     * 量级（键数 ≈ 5 分钟内的不同查询数）在 256MB maxmemory 下无压力。
+     */
+    private static String canonicalListParams(ArticleQuery q) {
+        StringBuilder sb = new StringBuilder(64);
+        sb.append("p=").append(q.pageNum)
+                .append("&s=").append(q.pageSize)
+                .append("&cat=").append(q.categoryId == null ? "-" : q.categoryId)
+                .append("&tag=").append(q.tagId == null ? "-" : q.tagId)
+                .append("&kw=").append(q.keyword == null ? "-" : q.keyword.trim())
+                .append("&sort=").append(q.sort == null ? "-" : q.sort.trim().toLowerCase());
+        return sb.toString();
+    }
+
+    /**
+     * 详情（GET /api/articles/{id}）：缓存优先 + 可见性判定 + 作者/分类/标签聚合 + PV 计数。
      *
-     * <p>pv+1 本期不做（设计文档把浏览计数归到 Redis blog:pv:{id} + 定时回写，
-     * 那是 M9 缓存体系的一部分；在纯 DB 上每读 UPDATE view_count 会把读接口写成
-     * 写接口，压测 200 并发直接自伤——台账里给 M9 留了钩子说明）。
+     * <p>M9 读路径（系统设计 §3.2 时序图的"先查 Redis"分支）：
+     * <ol>
+     *   <li><b>缓存里只有发布态的公开视图</b>——回填侧只写 status=1 的装配结果，
+     *       所以命中即安全：任何人读同一篇发布文章拿到的 VO 完全一致，
+     *       不存在"缓存把 A 的视图吐给 B"的问题（草稿/下线根本不入缓存）。</li>
+     *   <li>miss → 回源 DB（selectById + 可见性矩阵）→ <b>仅发布态回填缓存</b>。
+     *       草稿被作者反复刷新不缓存是刻意的：编辑页要求"所见即最新"，
+     *       30min 的缓存反而制造"改了没生效"的假象。</li>
+     *   <li>PV 计数：两次 Redis INCR（见 {@link ArticleCacheService#countPv}），
+     *       失败静默。<b>不做线程池卸载</b>是简化决策：INCR 微秒级、try-catch 兜底，
+     *       Redis 故障时详情读本身也已降级直查 DB，为省 0.1ms 引入 @Async+池配置
+     *       在毕设体量下是负资产（"异步"语义由"定时回写与读请求解耦"兑现——
+     *       设计文档决策 4 的本意是读写 QPS 解耦，不是调用线程解耦）。
+     *       404/403 路径不计数：看不见的东西被"浏览"了会污染趋势数据。</li>
+     * </ol>
      */
     public ArticleVO detail(Long id, LoginUser me) {
+        ArticleVO cached = articleCache.getDetail(id);
+        if (cached != null) {
+            articleCache.countPv(id);
+            return cached;
+        }
         Article article = articleMapper.selectById(id);
         if (article == null) {
             throw new BizException(BizCode.ARTICLE_NOT_FOUND, BizCode.ARTICLE_NOT_FOUND.getMessage(), 404);
         }
         assertReadable(article, me);
-        return assembleDetail(article);
+        ArticleVO vo = assembleDetail(article);
+        // 仅发布态回填：判定用库里刚读出的 status，不重查（同一请求内一致性）
+        if (article.getStatus() == STATUS_PUBLISHED) {
+            articleCache.putDetail(id, vo);
+        }
+        articleCache.countPv(id);
+        return vo;
     }
 
     /**
@@ -247,6 +314,11 @@ public class ArticleService {
         rebuildTags(article.getId(), dto.getTags());
         // 发布态文章计入分类冗余计数（§3.7"保存文章时维护"——草稿不计，分类页只展示发布态）
         adjustCategoryCount(article.getCategoryId(), +1, status);
+        // M9 失效：直接发布的新文章改变了公开列表（置顶/新帖都在第一页），
+        // 草稿对公开视图零影响所以不必惊动缓存——"按影响面失效"而不是无脑全删
+        if (status == STATUS_PUBLISHED) {
+            evictCache(article.getId());
+        }
         log.info("用户 {} 新建文章 id={} status={}", me.getUserId(), article.getId(), status);
         return Map.of("id", article.getId(), "wordCount", article.getWordCount());
     }
@@ -314,6 +386,10 @@ public class ArticleService {
             adjustCategoryCount(existing.getCategoryId(), -1, STATUS_PUBLISHED);
             adjustCategoryCount(effectiveCat, +1, STATUS_PUBLISHED);
         }
+        // M9 失效：更新可能改标题/摘要/状态/标签——公开视图的任何成分都变了，
+        // 无条件删（哪怕新旧都是草稿：草稿→发布、发布→下线、草稿间改名都会
+        // 分别影响详情缓存与列表缓存，分支判断的收益远小于漏删的风险）
+        evictCache(id);
         Article reloaded = articleMapper.selectById(id);
         return Map.of("id", id, "wordCount", reloaded.getWordCount(), "version", reloaded.getVersion());
     }
@@ -355,6 +431,10 @@ public class ArticleService {
         } else if (existing.getStatus() == STATUS_PUBLISHED && target != STATUS_PUBLISHED) {
             adjustCategoryCount(existing.getCategoryId(), -1, STATUS_PUBLISHED);
         }
+        // M9 失效：任何流转都可能改变"公开视图"（发布=进入列表/详情可缓存，
+        // 下线/回草稿=必须从缓存消失）。第 3 步幂等分支（目标=当前）已在前面
+        // return，不会走到这里空删一次；这里删的是"真的变了状态"的路径。
+        evictCache(id);
         return switch (target) {
             case STATUS_PUBLISHED -> "已发布";
             case STATUS_OFFLINE -> "已下线";
@@ -380,6 +460,9 @@ public class ArticleService {
         for (Long tagId : tagIds) {
             bumpTagCount(tagId, -1);
         }
+        // M9 失效：逻辑删除后详情键若不清，30min 内游客仍能点到"已删除"的文章正文
+        // （缓存里没有 deleted 位的语义，删缓存就是它对外消失的执法动作）
+        evictCache(id);
         log.info("用户 {} 删除文章 {}", me.getUserId(), id);
     }
 
@@ -410,6 +493,7 @@ public class ArticleService {
         if (existing.getStatus() == STATUS_PUBLISHED) {
             adjustCategoryCount(existing.getCategoryId(), -1, STATUS_PUBLISHED);
         }
+        evictCache(id); // M9：下线必须让缓存里的公开视图即刻消失（治理动作的执法闭环）
         return "已下线";
     }
 
@@ -428,6 +512,9 @@ public class ArticleService {
                 .eq(Article::getId, id)
                 .set(Article::getTopFlag, topFlag)
                 .set(Article::getUpdatedAt, LocalDateTime.now()));
+        // M9：置顶改变的是列表次序不是详情内容，但失效粒度统一走"全删"
+        // （列表键本来就无法精准定位到"受影响的那几个页"，见 ArticleCacheService 注释）
+        evictCache(id);
     }
 
     // ==================================================================
@@ -462,6 +549,7 @@ public class ArticleService {
                 .set(Article::getSummarySource, 1)
                 .setSql("version = version + 1")
                 .set(Article::getUpdatedAt, LocalDateTime.now()));
+        evictCache(articleId); // M9：summary 进详情 VO，AI 回填后旧缓存就是脏数据
     }
 
     /**
@@ -473,6 +561,17 @@ public class ArticleService {
     @org.springframework.transaction.annotation.Transactional
     public void applyAiTags(Long articleId, List<String> tags) {
         rebuildTags(articleId, tags);
+        evictCache(articleId); // M9：tags 进详情 VO，同上
+    }
+
+    /**
+     * 写路径统一失效入口（M9）：详情 + 登记过的列表键全删，双删结构见
+     * {@link ArticleCacheService#evictTx}。收敛成一个私有方法是为了让
+     * "每处写必须失效"成为可 grep 的显性契约——新增写方法漏调一次，
+     * 代码评审看这一行的缺席就能抓到。
+     */
+    private void evictCache(Long articleId) {
+        articleCache.evictTx(articleId);
     }
 
     // ==================================================================

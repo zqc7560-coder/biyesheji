@@ -62,6 +62,13 @@ public class CommentService {
     private final ArticleMapper articleMapper;
     private final SysUserMapper userMapper;
     private final SysConfigMapper sysConfigMapper;
+    /**
+     * M9：comment_count 是详情 VO 的字段，计数一变旧缓存就是脏数据。
+     * 失效点收口在 bumpCommentCount（见该方法）——全部四个增减调用方
+     * （直发/审核/删除/连带屏蔽）自动覆盖，新增调用方不可能漏网。
+     * ArticleCacheService 是叶子组件（只依赖 Redis/ObjectMapper），构造注入无环。
+     */
+    private final com.blog.module.article.service.ArticleCacheService articleCache;
 
     /** 审核状态常量（§3.10：0 待审核 / 1 已通过 / 2 已屏蔽） */
     public static final int STATUS_PENDING = 0;
@@ -418,6 +425,11 @@ public class CommentService {
         articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, articleId)
                 .setSql("comment_count = GREATEST(comment_count + (" + delta + "), 0)"));
+        // M9：计数变更 → 详情缓存脏（comment_count 在 VO 里）。evictTx 的双删结构
+        // 与 ArticleService 写路径同一套纪律；delta=0 的幂等分支在上游已提前 return，
+        // 走到这里必然是"账真的动了"，无脑失效即可（漏删的代价是 30min 脏读，
+        // 多删的代价是一次回源——两边不对称，宁可多删）。
+        articleCache.evictTx(articleId);
     }
 
     private boolean isOwnerOrAdmin(LoginUser me, Article article) {

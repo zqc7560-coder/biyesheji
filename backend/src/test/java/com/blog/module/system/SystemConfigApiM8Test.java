@@ -276,7 +276,7 @@ class SystemConfigApiM8Test {
         assertThat(aiTrend.get(6).get("date"))
                 .isEqualTo(java.time.LocalDate.now().toString());
         assertThat((List<Map<String, Object>>) data.get("pvTrend")).hasSize(7);
-        assertThat((String) data.get("note")).contains("M9");   // 占位口径声明在契约里
+        assertThat((String) data.get("note")).contains("pvday");   // M9 真实口径声明在契约里
     }
 
     @Test

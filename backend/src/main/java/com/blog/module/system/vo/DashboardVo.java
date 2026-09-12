@@ -23,10 +23,10 @@ public class DashboardVo {
     /** 近 7 日 AI 调用趋势（真实数据源：ai_call_log 逐日聚合） */
     private List<DayPoint> aiTrend;
 
-    /** 近 7 日浏览量趋势：本期恒为 null 序列（诚实占位，见 DashboardService 注释） */
+    /** 近 7 日浏览量趋势（M9 起为真实序列：Redis blog:pvday:{yyyyMMdd} 按日计数） */
     private List<DayPoint> pvTrend;
 
-    /** 浏览量当前累计总值（article.view_count 求和，口径=未删除全部文章） */
+    /** 浏览量当前累计总值（view_count 存量 + 未回写的 blog:pv:* 实时增量） */
     private Long totalPv;
 
     /** 数据口径说明：前端在图区直接展示，避免答辩现场"这折线是什么"答不上来 */

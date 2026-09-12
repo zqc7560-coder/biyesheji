@@ -71,6 +71,11 @@ blog:
     # 默认值是写死在仓库里的开发占位串——等于"没有密钥"，生产部署必须替换：
     #   openssl rand -hex 32   →   AI_KEY_ENC_SECRET=<64位hex>
     master-key: ${AI_KEY_ENC_SECRET:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
+  # M9：PV 计数回写任务节拍（《系统设计》决策 4：读 INCR、5min 批量加回写）。
+  # 测试 profile 把 initial-delay 拨到 24h 禁自动触发（由测试显式驱动 syncNow）。
+  pv:
+    initial-delay-ms: 60000         # 启动 1 分钟后首轮（避开建库/引导竞争）
+    sync-interval-ms: 300000        # fixedDelay 5min：上轮结束后歇 5 分钟，天然防重入
 
 logging:
   level:

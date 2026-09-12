@@ -59,3 +59,29 @@ export function shortDate(isoDate) {
   const s = String(isoDate || '')
   return s.length >= 10 ? s.slice(5) : s
 }
+
+/**
+ * 缓存健康度键族 → 展示行（M9）。
+ * 后端 stats 是 {snake_or_camel: count} 的开放 Map，前端在这里把"认识的键"
+ * 翻译成中文标签、"不认识的键"原样带上——后端演进（新增键族）时页面不缺席
+ * 新指标，也不因字段集变化而崩。补偿队列深度 >0 亮 alert：那是"失效 DEL 失败
+ * 待重试"的信号，非零说明 Redis 抖过，管理员应该知道。
+ */
+export function cacheStatsRows(stats) {
+  const s = stats || {}
+  const labels = {
+    detailKeys: '详情缓存键',
+    listKeys: '列表缓存键',
+    listIndexMembers: '列表键登记数',
+    pvKeys: '待回写PV键',
+    pvDayKeys: '按日PV键',
+    evictRetryPending: '失效补偿待处理'
+  }
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  return Object.keys(labels).map((k) => ({
+    key: k,
+    label: labels[k],
+    value: num(s[k]),
+    alert: k === 'evictRetryPending' && num(s[k]) > 0
+  }))
+}
