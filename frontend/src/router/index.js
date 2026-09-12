@@ -29,10 +29,15 @@ const routes = [
     meta: { title: '用户中心', requiresAuth: true }
   },
   {
+    // M2 后台布局框架：AdminLayout 侧边菜单按权限点过滤渲染（阶段三任务 6），
+    // 子页面经 children 挂进 <router-view/>；整棵树仍受 ADMIN 角色守卫保护。
     path: '/admin',
-    name: 'Admin',
-    component: () => import('@/views/AdminView.vue'),
-    meta: { title: '管理后台', requiresAuth: true, roles: ['ROLE_ADMIN'] }
+    component: () => import('@/views/AdminLayout.vue'),
+    meta: { title: '管理后台', requiresAuth: true, roles: ['ROLE_ADMIN'] },
+    children: [
+      { path: '', name: 'AdminDashboard', component: () => import('@/views/admin/AdminDashboardView.vue'), meta: { title: '仪表盘 - 管理后台' } },
+      { path: 'users', name: 'AdminUsers', component: () => import('@/views/admin/AdminUserView.vue'), meta: { title: '用户管理 - 管理后台' } }
+    ]
   }
 ]
 

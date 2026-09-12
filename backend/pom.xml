@@ -33,6 +33,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <mybatis-plus.version>3.5.5</mybatis-plus.version>
     <knife4j.version>4.5.0</knife4j.version>
+    <jjwt.version>0.12.5</jjwt.version>
   </properties>
 
   <dependencies>
@@ -66,6 +67,33 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!-- Spring Security（M2 认证）：只提供 BCrypt + 过滤器链 + @PreAuthorize 鉴权，
+         不使用其表单登录/Session 能力（无状态 JWT 方案，《系统设计.md》§4 选型） -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- JWT（M2）：jjwt 0.12.x —— 0.11→0.12 API 有迁移成本（parserBuilder→Jwts.parser 等），
+         项目计划 D-6 已预研：统一用 0.12 新 API，密钥 HS256 ≥32 字节 -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
     </dependency>
 
     <!-- Lombok：精简实体样板代码（@Data/@Builder），编译期生效不进产物 -->

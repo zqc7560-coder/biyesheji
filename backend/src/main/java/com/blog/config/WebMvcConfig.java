@@ -15,6 +15,24 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
+    /** 上传根目录：与 MinimalFileStorageService 落盘目录同一配置键（blog.upload.dir） */
+    @org.springframework.beans.factory.annotation.Value("${blog.upload.dir:./uploads}")
+    private String uploadDir;
+
+    /**
+     * 静态资源映射（M2 追加）：/uploads/** → 磁盘上传目录直出。
+     * 为什么应用层也要映射而不全靠 Nginx：dev 环境没有 Nginx（Vite 代理直连 8080，
+     * vite.config.js 已配 /uploads 代理），不映射则头像图片 404；prod 由 Nginx
+     * 优先截流直出（部署文档 §1.2），本映射只在 Nginx 未命中的边角场景兜底。
+     */
+    @Override
+    public void addResourceHandlers(org.springframework.web.servlet.config.annotation
+            .ResourceHandlerRegistry registry) {
+        java.nio.file.Path root = java.nio.file.Paths.get(uploadDir).toAbsolutePath().normalize();
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations(root.toUri().toString());
+    }
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")

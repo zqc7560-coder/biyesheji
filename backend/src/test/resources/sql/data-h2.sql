@@ -13,8 +13,8 @@
 -- 全部 INSERT IGNORE：同 JVM 里多个 Spring 上下文共享 blog_test（DB_CLOSE_DELAY=-1），
 -- 第二个上下文启动会重放本脚本，非幂等写法会主键冲突炸掉容器。
 INSERT IGNORE INTO sys_user (id, username, password, nickname, email, status) VALUES
-  (1, 'testuser', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', '测试用户', 'test@blog.local', 1),
-  (2, 'other',    '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', '另一位用户', 'other@blog.local', 1);
+  (1, 'testuser', '$2a$10$wLikrZ4XOUcypnC6TdY/u.6ga5JcEykuc16AfBxh336TwJC2mq2CG', '测试用户', 'test@blog.local', 1),
+  (2, 'other',    '$2a$10$wLikrZ4XOUcypnC6TdY/u.6ga5JcEykuc16AfBxh336TwJC2mq2CG', '另一位用户', 'other@blog.local', 1);
 
 -- 角色：显式 id 与生产 data.sql 一致（ROLE_USER=1 / ROLE_ADMIN=2，授权 SQL 依赖该编号）
 INSERT IGNORE INTO sys_role (id, role_code, role_name, description) VALUES
@@ -64,3 +64,18 @@ INSERT IGNORE INTO ai_config
   (2, 'Qwen3.8-Flash',     'dashscope', 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       '__PENDING_KEY_IMPORT__', '未导入Key', 'qwen3.8-flash',
       0.30, 512, 30000, 1, 0, 1);
+
+-- ---------- M2 测试 RBAC 挂载：给两个种子用户接上角色（生产库里注册/引导流程会写
+-- user_role，测试种子直插 sys_user 绕过了流程，这里补齐授权链，
+-- 否则 M2 的登录测试拿不到任何角色权限点）----------
+-- testuser(id=1) → ROLE_USER；other(id=2) → ROLE_ADMIN（越权矩阵测试需要现成的管理员样本）
+INSERT IGNORE INTO user_role (user_id, role_id) VALUES (1, 1), (2, 2);
+
+-- admin 账号不在种子中预插：M2 的 AdminBootstrapRunner 在每次上下文启动时
+-- "查无 admin 则创建"，测试链路正好覆盖这条生产同款引导路径
+-- （口令取 blog.admin.init-password，见 application-test.yml）。
+
+-- 禁用账号样本（登录 1003 用例）：口令 password123 的 BCrypt 散列（单向产物，非敏感，可入库）
+INSERT IGNORE INTO sys_user (id, username, password, nickname, email, status) VALUES
+  (3, 'disabled', '$2a$10$wLikrZ4XOUcypnC6TdY/u.6ga5JcEykuc16AfBxh336TwJC2mq2CG', '被封号的', 'banned@blog.local', 0);
+INSERT IGNORE INTO user_role (user_id, role_id) VALUES (3, 1);

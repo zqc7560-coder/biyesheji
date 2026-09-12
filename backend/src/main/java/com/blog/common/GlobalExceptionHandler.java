@@ -62,6 +62,31 @@ public class GlobalExceptionHandler {
                 .body(Result.fail(BizCode.PARAM_ERROR, "请求方法不支持: " + e.getMethod()));
     }
 
+    /**
+     * 方法级鉴权失败（@PreAuthorize 拦截，越权三防的第二层）——M2 补充。
+     *
+     * <p>为什么必须显式声明：AccessDenied 发生在 DispatcherServlet 内部
+     * （AOP 代理调 Controller 时），会被下面的兜底 Exception 分支接住变成 500——
+     * 越权是正常安全事件，不是系统故障，必须转 403 + 1005
+     * （且不泄露"资源存在但你没权限"之外的细节）。
+     *
+     * <p>版本注记：Spring Security 6.2（Boot 3.2.5 管理版本）里 @PreAuthorize 失败
+     * 抛的就是 AccessDeniedException；6.3+ 才引入 AuthorizationDeniedException，
+     * 升级 Boot 时在此补上对应类型即可（清单别漏，否则又回归 500）。
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<Result<Void>> handleAccessDenied(Exception e) {
+        // 未认证用户触发的 AccessDenied 语义是 1001（过滤器没给 Context），
+        // 已认证但权限不足才是 1005——按 SecurityContext 是否有 principal 区分
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean anonymous = auth == null || !auth.isAuthenticated()
+                || auth instanceof org.springframework.security.authentication.AnonymousAuthenticationToken;
+        BizCode code = anonymous ? BizCode.UNAUTHORIZED : BizCode.FORBIDDEN;
+        return ResponseEntity.status(anonymous ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN)
+                .body(Result.fail(code));
+    }
+
     /** 兜底：未知异常记全栈定位问题，对外只回统一文案，防止堆栈/SQL 泄露 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleUnknown(HttpServletRequest req, Exception e) {

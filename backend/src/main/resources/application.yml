@@ -59,6 +59,10 @@ blog:
     expire-seconds: 7200            # 2h 短 TTL（黑名单方案补齐登出，见系统设计 §3.1）
   upload:
     dir: ${BLOG_UPLOAD_DIR:./uploads}   # 本地磁盘映射 /uploads（ADR-5：不接 OSS）
+  admin:
+    # M2 引导管理员账号的初始口令：默认值仅供本机课设演示（任务书允许本地明文），
+    # 生产必须经 BLOG_ADMIN_PASSWORD 注入且首次登录后立即改密（AdminBootstrapRunner）
+    init-password: ${BLOG_ADMIN_PASSWORD:Admin@123}            # 本机课设演示默认口令，生产经环境变量注入
   ai:
     master-key: ${BLOG_AI_MASTER_KEY:}  # AES-GCM 主密钥，prod 环境变量注入，绝不入库
 

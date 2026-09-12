@@ -281,8 +281,10 @@ class DatabaseInitM1Test {
                 "insert into sys_role (role_code, role_name) values ('ROLE_RT','回读角色')"));
         tryRoundTrip(failures, "sys_permission", () -> jdbcTemplate.update(
                 "insert into sys_permission (perm_code, perm_name, module) values ('rt:use','回读权限','rt')"));
+        // (1,999)：M2 起 data-h2.sql 已种 (1,1)/(2,2)/(3,1) 真实授权链，探针改用
+        // 哨兵 role_id=999（与 role_permission 探针同一手法），避免撞 uk_user_role
         tryRoundTrip(failures, "user_role", () -> jdbcTemplate.update(
-                "insert into user_role (user_id, role_id) values (1, 1)"));
+                "insert into user_role (user_id, role_id) values (1, 999)"));
         // role_id=999：故意不关联真实角色，避免污染 rbacSeedIntegrity 的授权计数口径
         tryRoundTrip(failures, "role_permission", () -> jdbcTemplate.update(
                 "insert into role_permission (role_id, permission_id) values (999, 10)"));
