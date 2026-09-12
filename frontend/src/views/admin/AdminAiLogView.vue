@@ -46,6 +46,7 @@ const BIZ_LABEL = { SUMMARY: '摘要', TAGS: '标签', CONNECT_TEST: '连通测�
       <el-radio-group v-model="query.bizType" size="small" @change="reload">
         <el-radio-button label="">全部</el-radio-button>
         <el-radio-button label="SUMMARY">摘要</el-radio-button>
+        <el-radio-button label="TAGS">标签</el-radio-button>
         <el-radio-button label="CONNECT_TEST">连通测试</el-radio-button>
       </el-radio-group>
       <el-radio-group v-model="query.status" size="small" @change="reload">

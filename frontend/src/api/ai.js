@@ -48,3 +48,19 @@ export function testAiConfig(id) {
 export function fetchAiLogs(params) {
   return request.get('/admin/ai/logs', { params })
 }
+
+/** POST /api/ai/tags —— AI 生成候选标签（M7；登录+ai:use，异步端点） */
+export function aiTags(data) {
+  return request.post('/ai/tags', data)
+}
+
+/** POST /api/ai/batch —— 批量补全缺摘要/标签的已发布文章（M7；ADMIN 治理工具）。
+ *  articleIds 传空数组/缺省=服务端自动圈定前 20 篇。 */
+export function aiBatch(articleIds) {
+  return request.post('/ai/batch', articleIds && articleIds.length ? { articleIds } : {})
+}
+
+/** GET /api/admin/ai/stats —— 成本统计（M7；ADMIN, ai:log） */
+export function fetchAiStats(params) {
+  return request.get('/admin/ai/stats', { params })
+}

@@ -116,4 +116,32 @@ public class AiAdminController {
                                             @RequestParam(required = false) Long userId) {
         return Result.ok(callLogService.pageLogs(pageNum, pageSize, bizType, status, dateFrom, dateTo, userId));
     }
+
+    /**
+     * GET /api/admin/ai/stats —— 成本统计（M7；答辩演示"AI 成本可视化"的数据口）。
+     *
+     * <p>窗口参数默认最近 30 天（日志页默认观测量），前端可指定 dateFrom/dateTo；
+     * 权限点 ai:log 与日志查询同族（都是"读账本"，与"改配置"的 ai:config 分离）。
+     */
+    @Operation(summary = "AI 成本统计（按日/按业务/按用户聚合 + 缓存命中率）")
+    @GetMapping("/stats")
+    @PreAuthorize("hasAuthority('ai:log')")
+    public Result<com.blog.module.ai.vo.AiStatsVo> stats(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo) {
+        // 窗口钳制：缺省近 30 天；上界 90 天防爆拉（见 AiCallLogService.stats 注释）。
+        // 参数校验取"宽容纠偏"而非报错：统计页是只读看板，日期框被浏览器自动补全
+        // 搞出倒挂（from>to）时互换比弹红框友好。
+        LocalDate to = dateTo == null ? LocalDate.now() : dateTo;
+        LocalDate from = dateFrom == null ? to.minusDays(29) : dateFrom;
+        if (from.isAfter(to)) {
+            LocalDate tmp = from; from = to; to = tmp;
+        }
+        if (from.isBefore(to.minusDays(89))) {
+            from = to.minusDays(89);
+        }
+        return Result.ok(callLogService.stats(from, to));
+    }
 }

@@ -2,10 +2,12 @@ package com.blog.module.ai.controller;
 
 import com.blog.common.BizException;
 import com.blog.common.Result;
+import com.blog.module.ai.dto.AiBatchDTO;
 import com.blog.module.ai.dto.AiGenerateDTO;
 import com.blog.module.ai.service.LlmFacade;
 import com.blog.module.ai.vo.AiStatusVo;
 import com.blog.module.ai.vo.SummaryResult;
+import com.blog.module.ai.vo.TagsResult;
 import com.blog.security.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.RejectedExecutionException; // 保留引用说明：见下方 catch 注释
 
 /**
@@ -98,6 +102,68 @@ public class AiController {
     }
 
     /**
+     * POST /api/ai/tags —— 生成候选标签（M7；登录 + ai:use）。
+     *
+     * <p>与 summary 同款异步形态（DeferredResult + aiExecutor 卸载）：标签生成同样
+     * 是 5~30s 级外呼，没有任何理由占用 Tomcat 线程。异常翻译/超时降级逻辑与
+     * summary 逐字同构——两处都写而不抽公共泛型方法，是因为 DeferredResult 的
+     * 泛型参数不同，强行抽象要引入 Function 包装，可读性反而下降（博客量级下
+     * 60 行的重复换两侧各自的直白，值得）。
+     */
+    @Operation(summary = "AI 生成文章标签候选")
+    @PostMapping("/tags")
+    @PreAuthorize("hasAuthority('ai:use')")
+    public DeferredResult<ResponseEntity<Result<TagsResult>>> tags(
+            @AuthenticationPrincipal LoginUser me, @Valid @RequestBody AiGenerateDTO dto) {
+        Long userId = me.getUserId();
+        DeferredResult<ResponseEntity<Result<TagsResult>>> deferred =
+                new DeferredResult<>(DEFERRED_TIMEOUT_MS);
+        deferred.onTimeout(() -> deferred.setResult(degradeTags("AI 生成超时（35s），请稍后重试或手动填写")));
+        try {
+            aiExecutor.execute(() -> {
+                try {
+                    TagsResult result = llmFacade.generateTags(userId, dto);
+                    deferred.setResult(ResponseEntity.ok(Result.ok(result)));
+                } catch (BizException e) {
+                    deferred.setResult(ResponseEntity.status(e.getHttpStatus())
+                            .body(Result.fail(e.getBizCode(), e.getMessage())));
+                } catch (Exception e) {
+                    log.error("AI 标签异步任务未预期异常", e);
+                    deferred.setResult(degradeTags("AI 服务暂不可用，请稍后重试或手动填写"));
+                }
+            });
+        } catch (TaskRejectedException e) {
+            log.warn("AI 线程池饱和，标签任务被拒: {}", e.getMessage());
+            deferred.setResult(degradeTags("AI 服务繁忙，请稍后重试"));
+        }
+        return deferred;
+    }
+
+    /**
+     * POST /api/ai/batch —— 批量补全（M7；《API接口设计.md》§7：ADMIN 治理工具）。
+     *
+     * <p>响应契约是"受理回执"而非结果：候选圈定（同步、可拒绝）→ 提交异步执行 →
+     * 立即返回 accepted 数。管理员的进度观测口是 GET /api/admin/ai/logs（每条真实
+     * 调用都实时落日志），不为此做一个只在演示里有用的轮询接口——
+     * "异步任务用日志表当进度条"是 append-only 记账设计白送的收益。
+     */
+    @Operation(summary = "AI 批量补全缺摘要/标签的已发布文章（ADMIN）")
+    @PostMapping("/batch")
+    @PreAuthorize("hasAuthority('ai:config')")
+    public Result<Map<String, Object>> batch(@AuthenticationPrincipal LoginUser me,
+                                             @Valid @RequestBody(required = false) AiBatchDTO dto) {
+        List<Long> requested = dto == null ? null : dto.getArticleIds();
+        List<Long> candidates = llmFacade.resolveBatchCandidates(requested);
+        if (candidates.isEmpty()) {
+            return Result.ok(Map.of("accepted", 0, "message", "没有需要补全的文章"));
+        }
+        llmFacade.batchEnrich(candidates, me.getUserId());
+        return Result.ok(Map.of("accepted", candidates.size(),
+                "articleIds", candidates,
+                "message", "已受理 " + candidates.size() + " 篇，异步执行中（进度见 AI 调用日志）"));
+    }
+
+    /**
      * GET /api/ai/status —— 按钮可用态探测（公开；SecurityConfig 白名单放行）。
      *
      * <p>userId 从令牌里"顺带"取（有则算剩余额度，无则 null 跳过）——
@@ -112,6 +178,12 @@ public class AiController {
 
     /** 统一降级信封：4002 + 200 HTTP（AI 失败不是服务端故障，别让 Axios 拦截器当 5xx 弹错误） */
     private ResponseEntity<Result<SummaryResult>> degrade(String message) {
+        return ResponseEntity.status(HttpStatus.OK)
+                .body(Result.fail(com.blog.common.BizCode.AI_CALL_FAILED, message));
+    }
+
+    /** 标签侧同款降级信封（泛型不同的重复，理由见 tags() 方法注释） */
+    private ResponseEntity<Result<TagsResult>> degradeTags(String message) {
         return ResponseEntity.status(HttpStatus.OK)
                 .body(Result.fail(com.blog.common.BizCode.AI_CALL_FAILED, message));
     }

@@ -63,7 +63,9 @@ const routes = [
       // M6：AI 配置页/调用日志页（UC-A-06，课题重点），menu.js 声明的 ai-config/ai-logs 入口落地；
       // 权限点在页面内消费（ai:config / ai:log），路由级只挡非 ADMIN 整棵树
       { path: 'ai/config', name: 'AdminAiConfig', component: () => import('@/views/admin/AdminAiConfigView.vue'), meta: { title: 'AI 模型配置 - 管理后台' } },
-      { path: 'ai/logs', name: 'AdminAiLogs', component: () => import('@/views/admin/AdminAiLogView.vue'), meta: { title: 'AI 调用日志 - 管理后台' } }
+      { path: 'ai/logs', name: 'AdminAiLogs', component: () => import('@/views/admin/AdminAiLogView.vue'), meta: { title: 'AI 调用日志 - 管理后台' } },
+      // M7：成本统计页（答辩"AI 成本可视化"主屏 + 批量补全治理入口）
+      { path: 'ai/stats', name: 'AdminAiStats', component: () => import('@/views/admin/AdminAiStatsView.vue'), meta: { title: 'AI 成本统计 - 管理后台' } }
     ]
   }
 ]

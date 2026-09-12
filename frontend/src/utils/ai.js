@@ -88,3 +88,72 @@ export function formatCost(costEst) {
   if (n === 0) return '0'
   return n < 0.001 ? n.toFixed(6) : n.toFixed(4)
 }
+
+/**
+ * ---------- M7：AI 标签候选与成本统计 ----------
+ */
+
+/**
+ * AI 候选标签 → 可勾选清单（M7；ArticleEditView 的"AI 标签"弹窗数据源）。
+ *
+ * 纯函数职责三条规则：
+ * · 与编辑器现有标签去重（忽略大小写——与后端 tag uk_name 的 CI 排序规则同口径，
+ *   否则用户勾了 "java" 又留着自己的 "Java"，保存时被静默合并、数量对不上）；
+ * · existingTagIds（后端实时回查的已入库 id）结合 knownTags（编辑器已拉取的
+ *   id↔name 清单，M4 补全数据同源）映射成名称集合，命中的候选标 existing=true
+ *   → 弹窗里显示"已有"角标，让用户勾选时预判标签云会不会长新词；
+ * · 只过滤不排序不截断——服务端合法化（§5.2）已保证 ≤6 个且有序，前端重排是画蛇添足。
+ * @param {string[]} aiTags 后端合法化后的候选
+ * @param {number[]} existingTagIds 后端回查的已入库标签 id
+ * @param {{id:number,name:string}[]} knownTags 编辑器已加载的标签清单（id↔name 字典源）
+ * @param {string[]} currentNames 编辑器输入框现有标签
+ * @returns {{name:string, existing:boolean}[]}
+ */
+export function mergeAiTagCandidates(aiTags, existingTagIds, knownTags, currentNames) {
+  const owned = new Set((currentNames || []).map((n) => String(n).toLowerCase()))
+  const idSet = new Set((existingTagIds || []).map(Number))
+  const existedNames = new Set(
+    (knownTags || []).filter((t) => idSet.has(Number(t.id))).map((t) => String(t.name).toLowerCase()))
+  return (aiTags || [])
+    .filter((t) => !owned.has(String(t).toLowerCase()))
+    .map((t) => ({ name: t, existing: existedNames.has(String(t).toLowerCase()) }))
+}
+
+/**
+ * 勾选确认后写回 tagsText：现有串 + 勾中的候选，逗号分隔（编辑器单一事实源是文本框）。
+ * 末尾统一补一个 ", "（保持继续手输的手感，与 M4 onPickTag 同款约定）。
+ */
+export function appendTagsToText(currentText, pickedNames) {
+  const parts = String(currentText || '').split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
+  for (const p of pickedNames || []) {
+    if (!parts.some((x) => x.toLowerCase() === String(p).toLowerCase())) parts.push(p)
+  }
+  return parts.length ? parts.join(', ') + ', ' : ''
+}
+
+/**
+ * 成本统计页：命中率小数(0~1) → 展示文案。null/NaN 落 "—"（新装库无日志的初始态）。
+ */
+export function formatHitRate(rate) {
+  const n = Number(rate)
+  if (rate == null || Number.isNaN(n)) return '—'
+  return (n * 100).toFixed(1) + '%'
+}
+
+/**
+ * 统计页日期窗快捷计算：'7d'|'30d'|'90d' → {dateFrom,dateTo}（ISO 字符串，后端契约）。
+ * 用本地日期而非 toISOString（UTC 偏移会让东八区的"今天"在北京时间 0-8 点显示成昨天）。
+ */
+export function statsWindow(preset, today = new Date()) {
+  const to = toIsoDate(today)
+  const days = { '7d': 6, '30d': 29, '90d': 89 }[preset] ?? 29
+  const from = new Date(today)
+  from.setDate(from.getDate() - days)
+  return { dateFrom: toIsoDate(from), dateTo: to }
+}
+
+/** Date → 本地 ISO 日期（yyyy-MM-dd，非 UTC 化） */
+function toIsoDate(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}

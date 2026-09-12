@@ -431,6 +431,51 @@ public class ArticleService {
     }
 
     // ==================================================================
+    // 面向 M7 AI 批量补全的窄接口（治理动作的"写库手"，权限判断在调用方完成）
+    // ==================================================================
+
+    /**
+     * 文章是否已有标签（batch 幂等跳过判定的读侧）。
+     * 只查关联表存在性不拉名字，selectCount 语义最直接。
+     */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public boolean hasTags(Long articleId) {
+        return articleTagMapper.selectCount(new LambdaQueryWrapper<ArticleTag>()
+                .eq(ArticleTag::getArticleId, articleId)) > 0;
+    }
+
+    /**
+     * 写入 AI 摘要（batch 专用）。窄列 UPDATE 而非整包 updateById：
+     * ① 绕开乐观锁冲突面——管理员补摘要不该踢掉作者正在编辑的页面（作者端的
+     *    version 检查会因我们的写入 +1 而误报 2004；这里用 setSql 原子递增 version
+     *    让仍在编辑的窗口下次保存时收到"真实冲突"提示，语义诚实）；
+     * ② summary_source=1 与文本同一语句写入，杜绝"文本落了、来源位没落"的半态。
+     * <p>where 里带 summary IS NULL OR ''：并发双跑同一批时后到者更新 0 行——
+     * "只补空缺、不覆盖已有"的幂等由数据库执法，比应用层 check-then-write 可靠。
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void applyAiSummary(Long articleId, String summary) {
+        articleMapper.update(null, new LambdaUpdateWrapper<Article>()
+                .eq(Article::getId, articleId)
+                .and(w -> w.isNull(Article::getSummary).or().eq(Article::getSummary, ""))
+                .set(Article::getSummary, summary)
+                .set(Article::getSummarySource, 1)
+                .setSql("version = version + 1")
+                .set(Article::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    /**
+     * 写入 AI 标签（batch 专用）：直接复用 rebuildTags——article_count 冗余结算、
+     * 大小写去重、名称合规都在原实现里（口径单一事实源；AI 侧另起炉灶必漂移）。
+     * 注意 rebuildTags 是"覆盖式重建"，调用方（AiBatchService）已保证仅在
+     * "文章原本无标签"时进入，不会误删作者手挂的标签。
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void applyAiTags(Long articleId, List<String> tags) {
+        rebuildTags(articleId, tags);
+    }
+
+    // ==================================================================
     // 内部：校验 / 装配
     // ==================================================================
 

@@ -101,6 +101,118 @@ public class AiCallLogService {
         return new PageResult<>(p.getTotal(), p.getPages(), p.getCurrent(), p.getSize(), vos);
     }
 
+    /**
+     * M7 成本统计（GET /api/admin/ai/stats 的数据源）：拉窗口内明细，Java 侧聚合。
+     *
+     * <p>为什么不写 GROUP BY SQL：见 AiStatsVo 类注释（跨库方言漂移是 H2/MySQL
+     * 双库测试矩阵的头号敌人；聚合语义放 Java 一遍过）。窗口上限由调用方钳到
+     * 90 天——日志量再大也只拉 90 天，防止"全表拉回来数数"的退化。
+     */
+    public com.blog.module.ai.vo.AiStatsVo stats(LocalDate from, LocalDate to) {
+        List<AiCallLog> rows = logMapper.selectList(new LambdaQueryWrapper<AiCallLog>()
+                .select(AiCallLog::getUserId, AiCallLog::getBizType, AiCallLog::getCacheHit,
+                        AiCallLog::getStatus, AiCallLog::getCostEst, AiCallLog::getLatencyMs,
+                        AiCallLog::getCreatedAt)
+                .ge(AiCallLog::getCreatedAt, from.atStartOfDay())
+                .le(AiCallLog::getCreatedAt, to.atTime(23, 59, 59)));
+
+        LocalDate today = LocalDate.now();
+
+        // ① 按日聚合（TreeMap 逆序键 → 日期降序输出）
+        java.util.Map<LocalDate, long[]> byDayAcc = new java.util.TreeMap<>(java.util.Comparator.reverseOrder());
+        // ② 按 biz 聚合：calls/cacheHits/cost(微元整数累加避免 BigDecimal 相加噪声)/latency 和
+        java.util.Map<String, Object[]> byBizAcc = new java.util.LinkedHashMap<>();
+        // ③ 按用户聚合：calls/cost
+        java.util.Map<Long, long[]> byUserAcc = new java.util.HashMap<>();
+        long hit = 0;
+        java.math.BigDecimal todayCost = BigDecimal.ZERO;
+
+        for (AiCallLog r : rows) {
+            LocalDate d = r.getCreatedAt().toLocalDate();
+            long[] day = byDayAcc.computeIfAbsent(d, k -> new long[5]);   // calls/success/fail/cacheHit/costNano
+            day[0]++;
+            if (r.getStatus() != null && (r.getStatus() == 1 || r.getStatus() == 3)) day[1]++;
+            if (r.getStatus() != null && r.getStatus() == 2) day[2]++;
+            boolean cacheHit = r.getCacheHit() != null && r.getCacheHit() == 1;
+            if (cacheHit) { day[3]++; hit++; }
+            java.math.BigDecimal cost = r.getCostEst() == null ? BigDecimal.ZERO : r.getCostEst();
+            day[4] += cost.multiply(BILLION).longValue();
+            if (d.equals(today)) todayCost = todayCost.add(cost);
+
+            Object[] biz = byBizAcc.computeIfAbsent(r.getBizType(),
+                    k -> new Object[]{0L, 0L, BigDecimal.ZERO, 0L});
+            biz[0] = (Long) biz[0] + 1;
+            if (cacheHit) biz[1] = (Long) biz[1] + 1;
+            biz[2] = ((java.math.BigDecimal) biz[2]).add(cost);
+            biz[3] = (Long) biz[3] + (r.getLatencyMs() == null ? 0 : r.getLatencyMs());
+
+            long[] user = byUserAcc.computeIfAbsent(r.getUserId() == null ? 0L : r.getUserId(),
+                    k -> new long[2]);   // calls/costNano
+            user[0]++;
+            user[1] += cost.multiply(BILLION).longValue();
+        }
+
+        // 昵称回填：只对成本 Top10 的用户查（全量查会把 Top10 之外的行也拖进 IN 子句）
+        List<Map<String, Object>> topUsers = byUserAcc.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue()[1], a.getValue()[1]))
+                .limit(10)
+                .map(e -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("userId", e.getKey());
+                    m.put("calls", e.getValue()[0]);
+                    m.put("cost", nanoToYuan(e.getValue()[1]));
+                    return m;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        if (!topUsers.isEmpty()) {
+            List<Long> uids = topUsers.stream()
+                    .map(m -> ((Number) m.get("userId")).longValue()).toList();
+            Map<Long, String> names = userMapper.selectBatchIds(uids).stream()
+                    .collect(Collectors.toMap(SysUser::getId, SysUser::getNickname, (a, b) -> a));
+            topUsers.forEach(m -> m.put("nickname",
+                    names.getOrDefault(((Number) m.get("userId")).longValue(), "已注销用户")));
+        }
+
+        List<Map<String, Object>> byDay = byDayAcc.entrySet().stream().map(e -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+            m.put("date", e.getKey().toString());
+            m.put("calls", e.getValue()[0]);
+            m.put("success", e.getValue()[1]);
+            m.put("failures", e.getValue()[2]);
+            m.put("cacheHits", e.getValue()[3]);
+            m.put("cost", nanoToYuan(e.getValue()[4]));
+            return m;
+        }).collect(Collectors.toList());
+
+        Map<String, Map<String, Object>> byBiz = new java.util.LinkedHashMap<>();
+        byBizAcc.forEach((biz, acc) -> {
+            Map<String, Object> m = new java.util.LinkedHashMap<>();
+            long calls = (Long) acc[0];
+            m.put("calls", calls);
+            m.put("cacheHits", acc[1]);
+            m.put("cost", acc[2]);
+            m.put("avgLatencyMs", calls == 0 ? 0 : (Long) acc[3] / calls);
+            byBiz.put(biz, m);
+        });
+
+        return com.blog.module.ai.vo.AiStatsVo.builder()
+                .dateFrom(from.toString()).dateTo(to.toString())
+                .byDay(byDay).byBiz(byBiz).topUsers(topUsers)
+                // 命中率保留 4 位小数（0.4231 形态；分母含缓存命中行——命中率=命中/全部请求）
+                .cacheHitRate(java.math.BigDecimal.valueOf(rows.isEmpty() ? 0.0 : (double) hit / rows.size())
+                        .setScale(4, java.math.RoundingMode.HALF_UP))
+                .todayCost(todayCost)
+                .totalCalls(rows.size())
+                .build();
+    }
+
+    /** 元 → 纳元的乘数：聚合期用 long 累加（BigDecimal 逐个 add 在 Java 侧既慢又易引入 scale 漂移），出口再除回来 */
+    private static final java.math.BigDecimal BILLION = new java.math.BigDecimal("1000000000");
+
+    private static java.math.BigDecimal nanoToYuan(long nano) {
+        return java.math.BigDecimal.valueOf(nano).divide(BILLION, 6, java.math.RoundingMode.HALF_UP);
+    }
+
     private AiCallLog base(Long userId, BizType bizType, Long configId, String model,
                            long latencyMs, boolean cacheHit, String contentHash) {
         AiCallLog row = new AiCallLog();

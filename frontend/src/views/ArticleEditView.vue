@@ -20,8 +20,10 @@ import { renderMarkdown } from '@/utils/markdown'
 import { decideSaveFailure, localDraftKey, resolveEditorSeed, VERSION_CONFLICT } from '@/utils/articleFlow'
 import { flattenCategoryTree, parseTagInput } from '@/utils/tagCategory'
 // M6：AI 摘要（课题重点）——按钮态探测 + 生成回填 + 降级处置
-import { aiSummary, aiStatus } from '@/api/ai'
-import { aiButtonState, summaryFailureAction, summaryBackfillHint } from '@/utils/ai'
+// M7：AI 标签候选（勾选确认制）+ 批量入口不在编辑器（那是 ADMIN 治理页的动作）
+import { aiSummary, aiTags, aiStatus } from '@/api/ai'
+import { aiButtonState, summaryFailureAction, summaryBackfillHint,
+         mergeAiTagCandidates, appendTagsToText } from '@/utils/ai'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
@@ -96,6 +98,50 @@ watch(() => form.summary, (v, old) => {
   if (!aiBackfilling && v !== old && summarySource.value === 1) summarySource.value = 0
   aiBackfilling = false
 })
+
+// ---------- M7：AI 标签（候选→勾选→追加，确认制红线） ----------
+const tagLoading = ref(false)
+/** AI 候选弹窗：visible + 候选清单（mergeAiTagCandidates 产物） */
+const tagDialog = reactive({ visible: false, candidates: [] })
+const tagPicked = ref([])
+/** 已入库标签的 id↔name 字典（existingTagIds 回查映射用；与补全候选同源数据） */
+const knownTagDict = ref([])
+
+async function runAiTags() {
+  if (!form.contentMd?.trim()) {
+    ElMessage.warning('先写点正文，AI 才有东西可提炼')
+    return
+  }
+  tagLoading.value = true
+  try {
+    const r = await aiTags({ title: form.title || undefined, contentMd: form.contentMd })
+    // 确认制（AI 模块设计 §5.2 红线）：不直接写输入框——弹窗让用户勾选后才追加。
+    // 摘要敢直写是因为只有一个字段且用户看得见全文；标签一旦进输入框就会被
+    // parseTagInput 静默拆分入库，"AI 塞了什么用户没来得及看"正是标签治理债的来源。
+    const merged = mergeAiTagCandidates(r.tags, r.existingTagIds, knownTagDict.value, tagList.value)
+    if (!merged.length) {
+      ElMessage.info('AI 给出的候选与你已有标签完全重合，无需追加')
+      return
+    }
+    tagDialog.candidates = merged
+    tagPicked.value = merged.map((c) => c.name)   // 默认全选：用户可以"减法式"确认，比逐个勾快
+    tagDialog.visible = true
+    if (r.fromCache) ElMessage.info('命中缓存（内容与上次生成时一致，未消耗新额度）')
+  } catch (e) {
+    const act = summaryFailureAction(e)           // 降级处置与摘要同族（4001~4005 语义一致）
+    ElMessage.warning(act.message)
+    if (act.action === 'disable') probeAi()
+  } finally {
+    tagLoading.value = false
+  }
+}
+
+/** 弹窗确认：勾中的候选追加进 tagsText（去重与格式由 appendTagsToText 纯函数负责） */
+function confirmAiTags() {
+  form.tagsText = appendTagsToText(form.tagsText, tagPicked.value)
+  tagDialog.visible = false
+  ElMessage.success(`已追加 ${tagPicked.value.length} 个标签，保存文章后生效`)
+}
 
 // ---------- M4：分类/标签候选数据（编辑器不再写死种子三分类） ----------
 /** 分类扁平选项（带缩进 label）；拉取失败退化为空列表——分类是可选字段，不阻塞写作 */
@@ -238,7 +284,10 @@ onMounted(() => {
   load()
   // M4：候选数据异步补充（失败静默：分类下拉空着也能保存草稿）
   fetchCategoryTree().then((tree) => { categoryOptions.value = flattenCategoryTree(tree) }).catch(() => {})
-  fetchTags().then((ts) => { knownTagNames.value = ts.map((t) => t.name) }).catch(() => {})
+  fetchTags().then((ts) => {
+    knownTagNames.value = ts.map((t) => t.name)
+    knownTagDict.value = ts.map((t) => ({ id: t.id, name: t.name }))   // M7：AI 标签"已有"角标的 id↔name 字典
+  }).catch(() => {})
   probeAi()   // M6：AI 按钮态探测（公开接口，失败静默——探测挂了就当 AI 不可用）
 })
 onBeforeUnmount(() => clearTimeout(draftTimer))
@@ -279,10 +328,36 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
             <el-button :disabled="aiBtn.disabled" :loading="aiLoading" @click="runAiSummary">✨ AI 摘要</el-button>
           </span>
         </el-tooltip>
+        <!-- M7：AI 标签按钮——同款置灰逻辑（aiButtonState 单一事实源）；产出走勾选弹窗而非直写 -->
+        <el-tooltip :content="aiBtn.disabled ? aiBtn.reason : '用默认模型提炼候选标签（勾选后追加，保存时生效）'"
+                    placement="top">
+          <span>
+            <el-button :disabled="aiBtn.disabled" :loading="tagLoading" @click="runAiTags">🏷 AI 标签</el-button>
+          </span>
+        </el-tooltip>
         <el-tag v-if="summarySource === 1" size="small" type="primary" effect="plain">摘要来源：AI</el-tag>
         <el-button link @click="router.back()">返回</el-button>
       </div>
     </div>
+
+    <!-- M7：AI 标签候选确认弹窗（§5.2"结果仅回显、用户确认后入库"红线的前端落点）。
+         默认全选=减法式确认；"已有"角标来自后端 existingTagIds × 前端 id↔name 字典 -->
+    <el-dialog v-model="tagDialog.visible" title="AI 提炼的候选标签（勾选要采纳的）" width="420px">
+      <el-checkbox-group v-model="tagPicked">
+        <div v-for="c in tagDialog.candidates" :key="c.name" class="tag-cand">
+          <el-checkbox :value="c.name">
+            {{ c.name }}
+            <el-tag v-if="c.existing" size="small" type="success" effect="plain">已有</el-tag>
+          </el-checkbox>
+        </div>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="tagDialog.visible = false">取消</el-button>
+        <el-button type="primary" :disabled="!tagPicked.length" @click="confirmAiTags">
+          追加 {{ tagPicked.length }} 个标签
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -296,4 +371,5 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
 .md-preview { flex: 1; overflow: auto; border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 14px; background: #fafbfc; line-height: 1.8; }
 .md-preview :deep(pre) { background: #f0f2f5; padding: 10px; border-radius: 6px; overflow: auto; }
 .actions { display: flex; gap: 10px; align-items: center; }
+.tag-cand { padding: 4px 0; }
 </style>

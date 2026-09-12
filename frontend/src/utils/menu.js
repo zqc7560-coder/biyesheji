@@ -23,6 +23,7 @@ export const ADMIN_MENUS = [
   { key: 'users', label: '用户管理', path: 'users', perm: 'user:manage' },            // M2 接口已就绪
   { key: 'ai-config', label: 'AI 配置', path: 'ai/config', perm: 'ai:config' },       // M6（课题重点）
   { key: 'ai-logs', label: 'AI 调用日志', path: 'ai/logs', perm: 'ai:log' },          // M6
+  { key: 'ai-stats', label: 'AI 成本统计', path: 'ai/stats', perm: 'ai:log' },         // M7（与日志同"读账本"权限族）
   { key: 'settings', label: '系统设置', path: 'settings', perm: 'config:manage' }     // M8
 ]
 

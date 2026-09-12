@@ -15,7 +15,12 @@ import {
   keyStatusTag,
   isBuiltinConfig,
   logStatusTag,
-  formatCost
+  formatCost,
+  // M7：AI 标签候选合并与统计页展示纯函数
+  mergeAiTagCandidates,
+  appendTagsToText,
+  formatHitRate,
+  statsWindow
 } from '../ai'
 
 /** status 接口的"一切正常"基线（各用例只覆盖自己关心的那个字段，避免测试间隐式耦合） */
@@ -126,5 +131,40 @@ describe('配置行 / 日志行展示辅助', () => {
     expect(formatCost(0)).toBe('0')
     expect(formatCost('0.000123')).toBe('0.000123')
     expect(formatCost(0.1234567)).toBe('0.1235')
+  })
+})
+
+describe('M7: AI 标签候选与统计页纯函数', () => {
+  it('mergeAiTagCandidates：与编辑器已有标签忽略大小写去重；existingTagIds×字典→已有角标', () => {
+    const known = [{ id: 5, name: 'Redis' }, { id: 8, name: '缓存' }]
+    const r = mergeAiTagCandidates(['SpringBoot', 'Redis', 'java'], [5], known, ['Java'])
+    // "java" 与已有的 "Java" 大小写不敏感重合被剔；Redis 的 id=5 在 existingIds → 角标
+    expect(r).toEqual([
+      { name: 'SpringBoot', existing: false },
+      { name: 'Redis', existing: true },
+    ])
+  })
+
+  it('mergeAiTagCandidates：全缺省入参不抛（防御 null 响应体）', () => {
+    expect(mergeAiTagCandidates(null, undefined, null, undefined)).toEqual([])
+  })
+
+  it('appendTagsToText：去重追加+末尾补逗；大小写重合不重复挂', () => {
+    expect(appendTagsToText('Java, Go', ['Go', 'Rust'])).toBe('Java, Go, Rust, ')
+    expect(appendTagsToText('', ['A', 'B'])).toBe('A, B, ')
+    expect(appendTagsToText('Java', ['java'])).toBe('Java, ')
+  })
+
+  it('formatHitRate：0.42→42.0%；null→破折号；1→100.0%', () => {
+    expect(formatHitRate(0.42)).toBe('42.0%')
+    expect(formatHitRate(1)).toBe('100.0%')
+    expect(formatHitRate(null)).toBe('—')
+  })
+
+  it('statsWindow：7d 取含今天共 7 天；跨月回退正确；未知 preset 回 30d 口径', () => {
+    const w = statsWindow('7d', new Date(2026, 8, 13))   // month 从 0 计 → 2026-09-13
+    expect(w).toEqual({ dateFrom: '2026-09-07', dateTo: '2026-09-13' })
+    expect(statsWindow('30d', new Date(2026, 8, 2)).dateFrom).toBe('2026-08-04')
+    expect(statsWindow('3d', new Date(2026, 8, 13)).dateFrom).toBe('2026-08-15')
   })
 })

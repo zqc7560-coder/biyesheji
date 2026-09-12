@@ -19,6 +19,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  * 向答辩老师证明"/api/ai 不占 http-nio 线程"（项目计划 D-3 的验证手段）。
  */
 @Configuration
+@org.springframework.scheduling.annotation.EnableAsync
 public class AiAsyncConfig {
 
     @Bean("aiExecutor")
