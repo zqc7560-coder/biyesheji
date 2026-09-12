@@ -1,0 +1,27 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 依赖与构建产物
+node_modules/
+target/
+dist/
+build/
+*.class
+*.jar
+*.war
+
+# 日志与临时文件
+*.log
+logs/
+tmp/
+
+# 环境与密钥（切勿提交）
+.env
+.env.local
+*.pem
+*.key
