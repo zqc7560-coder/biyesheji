@@ -22,6 +22,9 @@ import { flattenCategoryTree, parseTagInput } from '@/utils/tagCategory'
 // M6：AI 摘要（课题重点）——按钮态探测 + 生成回填 + 降级处置
 // M7：AI 标签候选（勾选确认制）+ 批量入口不在编辑器（那是 ADMIN 治理页的动作）
 import { aiSummary, aiTags, aiStatus } from '@/api/ai'
+// M8：正文插图/封面图上传（台账 M3 顺延项在此闭环）
+import { uploadImage } from '@/api/file'
+import { toMarkdownImage } from '@/utils/fileUpload'
 import { aiButtonState, summaryFailureAction, summaryBackfillHint,
          mergeAiTagCandidates, appendTagsToText } from '@/utils/ai'
 import { useUserStore } from '@/stores/user'
@@ -141,6 +144,56 @@ function confirmAiTags() {
   form.tagsText = appendTagsToText(form.tagsText, tagPicked.value)
   tagDialog.visible = false
   ElMessage.success(`已追加 ${tagPicked.value.length} 个标签，保存文章后生效`)
+}
+
+// ---------- M8：正文插图 / 封面图上传（走 POST /api/files/upload 通用通道） ----------
+/** textarea 引用：插图要"插入到光标处"而不是无脑追加到文末 */
+const contentEl = ref(null)
+const imageUploading = ref(false)
+const coverUploading = ref(false)
+
+/**
+ * 在光标位置插入文本并保持光标落在插入内容之后。
+ * 用 execCommand 之外的纯字符串拼接 + setSelectionRange：insertText 命令在部分
+ * 浏览器已废弃，字符串回写是唯一两环境（Chrome/Edge/Firefox）一致的方案。
+ */
+function insertAtCursor(text) {
+  const el = contentEl.value
+  if (!el) {
+    form.contentMd += '\n' + text + '\n'
+    return
+  }
+  const start = el.selectionStart ?? form.contentMd.length
+  const end = el.selectionEnd ?? start
+  form.contentMd = form.contentMd.slice(0, start) + text + form.contentMd.slice(end)
+  // 下一帧再复位光标：v-model 触发的 DOM 更新会重置选区，等它落地
+  requestAnimationFrame(() => {
+    el.focus()
+    el.setSelectionRange(start + text.length, start + text.length)
+  })
+}
+
+/** 选文件 → 预检 → 上传 → 成功回写（插图进正文 / 封面进 form.cover）。ev 是 input change */
+async function handlePickImage(ev, mode) {
+  const file = ev.target.files?.[0]
+  ev.target.value = ''   // 立即清空：连续选同一张图也能再次触发 change（浏览器按值去重）
+  if (!file) return
+  const setter = mode === 'cover' ? coverUploading : imageUploading
+  setter.value = true
+  try {
+    const r = await uploadImage(file, mode === 'cover' ? 'cover' : 'article')
+    if (mode === 'cover') {
+      form.cover = r.url
+      ElMessage.success('封面已设置，保存文章后生效')
+    } else {
+      insertAtCursor('\n' + toMarkdownImage(r.url, file.name) + '\n')
+      ElMessage.success('插图已插入正文（预览区可即时查看）')
+    }
+  } catch (e) {
+    ElMessage.error(e.message || '图片上传失败')
+  } finally {
+    setter.value = false
+  }
 }
 
 // ---------- M4：分类/标签候选数据（编辑器不再写死种子三分类） ----------
@@ -308,13 +361,29 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
         </el-select>
       </div>
       <el-input v-model="form.summary" type="textarea" :rows="2" maxlength="500" show-word-limit
-                placeholder="摘要（可留空；M6 接入 AI 一键生成）" />
+                placeholder="摘要（可留空；点下方 AI 摘要一键生成）" />
+      <!-- M8：封面图（URL 直填或上传回填；列表页卡片图来源） -->
+      <div class="cover-row">
+        <el-input v-model="form.cover" placeholder="封面图 URL（可留空；右侧按钮上传后自动回填）" clearable style="max-width:480px" />
+        <label class="upload-btn">
+          <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden @change="(e) => handlePickImage(e, 'cover')" />
+          <el-button size="small" :loading="coverUploading">上传封面</el-button>
+        </label>
+        <img v-if="form.cover" :src="form.cover" class="cover-prev" alt="封面预览" />
+      </div>
       <div class="md-toolbar">
         <span class="count">字数（去空白）：{{ wordCount }}</span>
-        <span class="hint">提示：图片上传（/uploads 通道）M8 完整开放；本期正文可直接粘贴外链 ![]()</span>
+        <span class="hint">
+          <!-- M8：正文插图通道落地（光标处插入 ![]() 语法，预览区即时渲染） -->
+          <label class="upload-btn">
+            <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden @change="(e) => handlePickImage(e, 'inline')" />
+            <el-button size="small" :loading="imageUploading">插入图片</el-button>
+          </label>
+          <span style="margin-left:8px">也可直接粘贴外链 ![]()</span>
+        </span>
       </div>
       <div class="md-split">
-        <textarea v-model="form.contentMd" class="md-input" placeholder="# 用 Markdown 写作…"></textarea>
+        <textarea ref="contentEl" v-model="form.contentMd" class="md-input" placeholder="# 用 Markdown 写作…"></textarea>
         <div class="md-preview" v-html="previewHtml"></div>
       </div>
       <div class="actions">
@@ -372,4 +441,8 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
 .md-preview :deep(pre) { background: #f0f2f5; padding: 10px; border-radius: 6px; overflow: auto; }
 .actions { display: flex; gap: 10px; align-items: center; }
 .tag-cand { padding: 4px 0; }
+/* M8：封面行与上传按钮 */
+.cover-row { display: flex; align-items: center; gap: 10px; }
+.upload-btn { cursor: pointer; }
+.cover-prev { height: 40px; max-width: 120px; object-fit: cover; border: 1px solid #dcdfe6; border-radius: 4px; }
 </style>

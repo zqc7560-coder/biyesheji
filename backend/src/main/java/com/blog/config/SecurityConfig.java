@@ -81,7 +81,10 @@ public class SecurityConfig {
                                 // M6：AI 状态探测公开（《API接口设计.md》§7"公开"行）——
                                 // 前端渲染编辑器时就调它决定按钮灰不灰，不能为此强制登录；
                                 // /api/ai/summary、/api/ai/tags 与全部 /api/admin/ai/** 仍走登录+权限点
-                                "/api/ai/status").permitAll()
+                                "/api/ai/status",
+                                // M8：站点公开参数（首屏顶栏站点名/备案号，文档 §8"公开"行）。
+                                // 只放行 GET——/api/admin/system/config 与 PUT 修改走默认拒+权限点
+                                "/api/system/config").permitAll()
                         // HTTP OPTIONS 预检不带 Authorization 头，必须放行否则跨域调试全挂
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

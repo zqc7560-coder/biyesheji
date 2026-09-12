@@ -455,7 +455,8 @@ class AuthApiM2Test {
     void avatarUpload() throws Exception {
         String token = loginForToken("testuser", SEED_PWD);
         MockMultipartFile png = new MockMultipartFile("file", "me.png", "image/png",
-                new byte[]{(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});   // 小文件内容随意，白名单按扩展名+MIME
+                // M8 起加魔数第三卡：给足完整 8 字节 PNG 签名（0x89 P N G 0D 0A 1A 0A）+尾部数据
+                new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3});
 
         MvcResult ok = mockMvc.perform(multipart("/api/users/avatar").file(png)
                         .header("Authorization", "Bearer " + token))

@@ -34,8 +34,12 @@ INSERT IGNORE INTO role_permission (role_id, permission_id)
   SELECT 1, id FROM sys_permission WHERE perm_code IN ('article:save','article:delete','ai:use');
 
 -- ---------- 系统参数（键名与《数据库设计.md》§3.14 逐字一致） ----------
+-- M8 补两枚站点门面参数（/api/system/config 公开白名单键；后台系统设置页可改）。
+-- 键名以《数据库设计.md》§3.14 的列举（site_name/logo/备案号/注册开关）为准逐字对齐。
 INSERT IGNORE INTO sys_config (config_key, config_value, config_type, description) VALUES
   ('site_name','我的博客','string','站点名称'),
+  ('site_logo','','string','站点Logo图片URL（后台上传后经 /api/files/upload 回填）'),
+  ('site_icp','','string','ICP备案号（页脚展示，空则不显示）'),
   ('allow_register','true','boolean','是否开放注册'),
   ('comment_audit','false','boolean','评论是否先审后发'),
   ('ai_enabled','true','boolean','AI功能总开关'),

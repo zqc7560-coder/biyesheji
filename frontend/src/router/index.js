@@ -65,7 +65,9 @@ const routes = [
       { path: 'ai/config', name: 'AdminAiConfig', component: () => import('@/views/admin/AdminAiConfigView.vue'), meta: { title: 'AI 模型配置 - 管理后台' } },
       { path: 'ai/logs', name: 'AdminAiLogs', component: () => import('@/views/admin/AdminAiLogView.vue'), meta: { title: 'AI 调用日志 - 管理后台' } },
       // M7：成本统计页（答辩"AI 成本可视化"主屏 + 批量补全治理入口）
-      { path: 'ai/stats', name: 'AdminAiStats', component: () => import('@/views/admin/AdminAiStatsView.vue'), meta: { title: 'AI 成本统计 - 管理后台' } }
+      { path: 'ai/stats', name: 'AdminAiStats', component: () => import('@/views/admin/AdminAiStatsView.vue'), meta: { title: 'AI 成本统计 - 管理后台' } },
+      // M8：系统设置页（UC-A-09），menu.js 声明的 settings 入口落地（权限点 config:manage 在页面消费）
+      { path: 'settings', name: 'AdminSettings', component: () => import('@/views/admin/AdminSystemConfigView.vue'), meta: { title: '系统设置 - 管理后台' } }
     ]
   }
 ]

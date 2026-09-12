@@ -41,6 +41,9 @@ INSERT IGNORE INTO role_permission (role_id, permission_id)
 
 INSERT IGNORE INTO sys_config (config_key, config_value, config_type, description) VALUES
   ('site_name','我的博客','string','站点名称'),
+  -- M8 与生产 data.sql 同步补站点门面两键（公开接口/系统设置页用例依赖）
+  ('site_logo','','string','站点Logo图片URL（后台上传后经 /api/files/upload 回填）'),
+  ('site_icp','','string','ICP备案号（页脚展示，空则不显示）'),
   ('allow_register','true','boolean','是否开放注册'),
   ('comment_audit','false','boolean','评论是否先审后发'),
   ('ai_enabled','true','boolean','AI功能总开关'),

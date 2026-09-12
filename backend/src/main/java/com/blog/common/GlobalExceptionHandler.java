@@ -87,6 +87,18 @@ public class GlobalExceptionHandler {
                 .body(Result.fail(code));
     }
 
+    /**
+     * 容器级 multipart 超限（M8 补充）：>5MB 的文件在 Tomcat 解析阶段就抛
+     * MaxUploadSizeExceededException，永远到不了 Controller 的 size 判断——
+     * 不接住它就落兜底分支回 500，而契约是 3002/200（API 文档 §1.4 文件区段）。
+     * 注：application.yml 的 max-request-size=6MB 略大于 5MB，是为了让 multipart
+     * 信封开销（boundary/头部）不至于让 5MB 整的合法文件被误杀。
+     */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<Void>> handleUploadTooLarge(Exception e) {
+        return ResponseEntity.ok(Result.fail(BizCode.FILE_TOO_LARGE));
+    }
+
     /** 兜底：未知异常记全栈定位问题，对外只回统一文案，防止堆栈/SQL 泄露 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleUnknown(HttpServletRequest req, Exception e) {

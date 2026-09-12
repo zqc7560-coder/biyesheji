@@ -31,7 +31,11 @@ spring:
 # BLOG_AI_KEY_* 显式置空 + key-file 指向不存在路径：彻底禁掉 BuiltinModelKeySeeder，
 # 保证测试库里种子占位行（__PENDING_KEY_IMPORT__）不被真实 Key 覆盖——
 # 否则开发者本机 backend/.env 一旦存在，所有依赖"未导入 Key"态的用例会随环境漂移。
+# M8：测试上传落盘指到 target/ 下（target 已在 .gitignore，跑完随 mvn clean 消失，
+# 不污染工作区 uploads/——生产/dev 默认 ./uploads 不变）
 blog:
+  upload:
+    dir: ./target/test-uploads
   ai:
     master-key: 000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f
     key-file: ./nonexistent-test-only.env

@@ -11,6 +11,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { listArticles } from '@/api/article'
 import { fetchCategoryTree } from '@/api/category'
 import { fetchTags } from '@/api/tag'
+// M8：站点公开参数（顶栏站点名/Logo、页脚备案号）——匿名接口，失败静默回退默认值
+import { fetchPublicConfig } from '@/api/system'
 import { flattenCategoryTree, tagCloudFontSize } from '@/utils/tagCategory'
 
 const route = useRoute()
@@ -27,6 +29,8 @@ const loading = ref(false)
 /** M4：导航数据（分类树扁平化 + 标签云），与文章列表并行拉取、互不阻塞 */
 const categoryOptions = ref([])
 const cloudTags = ref([])
+/** M8：站点门面参数（site_name/site_logo/site_icp）；空对象=未加载/加载失败 → 模板走回退文案 */
+const site = reactive({ site_name: '', site_logo: '', site_icp: '' })
 const activeTag = computed(() => filters.tagId
   ? cloudTags.value.find((t) => t.id === filters.tagId) : null)
 
@@ -35,6 +39,8 @@ onMounted(() => {
   // 导航拉取失败不阻塞列表（降级：只显示文章卡片）——导航是辅助信息，不是主数据
   fetchCategoryTree().then((tree) => { categoryOptions.value = flattenCategoryTree(tree) }).catch(() => {})
   fetchTags(true).then((ts) => { cloudTags.value = ts }).catch(() => {})
+  // M8：站点参数静默加载（失败保空 → 模板回退"个人博客系统"硬编码，首屏永不空白）
+  fetchPublicConfig().then((c) => Object.assign(site, c || {})).catch(() => {})
 })
 
 /** 点分类/标签导航：改 query 后由下面的 route.query watcher 统一驱动 fetchList（单一事实源） */
@@ -88,7 +94,11 @@ watch(() => route.query, (q) => {
 
 <template>
   <main class="home">
-    <h1 class="site-title">个人博客系统</h1>
+    <!-- M8：站点名/Logo 来自 GET /api/system/config（匿名公开参数）；拉取失败回退硬编码名 -->
+    <h1 class="site-title">
+      <img v-if="site.site_logo" :src="site.site_logo" class="site-logo" alt="站点Logo" />
+      {{ site.site_name || '个人博客系统' }}
+    </h1>
     <div class="layout">
       <!-- M4：左侧导航（UC-V-06 分类导航 + 标签云）——数据来自公开接口，游客可用 -->
       <aside class="side">
@@ -156,12 +166,17 @@ watch(() => route.query, (q) => {
                    @current-change="fetchList" class="pager" />
       </section>
     </div>
+    <!-- M8：页脚备案号（site_icp 为空则整行不渲染，避免"空壳合规位"） -->
+    <footer v-if="site.site_icp" class="site-foot">{{ site.site_icp }}</footer>
   </main>
 </template>
 
 <style scoped>
 .home { max-width: 1080px; margin: 24px auto; padding: 0 16px; }
 .site-title { font-size: 22px; margin-bottom: 16px; }
+/* M8：顶栏 Logo（object-fit contain 防拉伸变形）与页脚备案号 */
+.site-logo { height: 26px; max-width: 90px; object-fit: contain; vertical-align: middle; margin-right: 8px; }
+.site-foot { margin-top: 24px; text-align: center; color: #909399; font-size: 12px; }
 /* M4：两栏布局——窄屏（<768px）导航折到列表上方，保持移动端可读 */
 .layout { display: flex; gap: 20px; align-items: flex-start; }
 .side { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px; }
