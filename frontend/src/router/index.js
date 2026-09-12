@@ -59,7 +59,11 @@ const routes = [
       { path: 'categories', name: 'AdminCategories', component: () => import('@/views/admin/AdminCategoryView.vue'), meta: { title: '分类管理 - 管理后台' } },
       { path: 'tags', name: 'AdminTags', component: () => import('@/views/admin/AdminTagView.vue'), meta: { title: '标签管理 - 管理后台' } },
       // M5：评论审核页（UC-A-05），menu.js 声明的 comments 入口落地
-      { path: 'comments', name: 'AdminComments', component: () => import('@/views/admin/AdminCommentView.vue'), meta: { title: '评论审核 - 管理后台' } }
+      { path: 'comments', name: 'AdminComments', component: () => import('@/views/admin/AdminCommentView.vue'), meta: { title: '评论审核 - 管理后台' } },
+      // M6：AI 配置页/调用日志页（UC-A-06，课题重点），menu.js 声明的 ai-config/ai-logs 入口落地；
+      // 权限点在页面内消费（ai:config / ai:log），路由级只挡非 ADMIN 整棵树
+      { path: 'ai/config', name: 'AdminAiConfig', component: () => import('@/views/admin/AdminAiConfigView.vue'), meta: { title: 'AI 模型配置 - 管理后台' } },
+      { path: 'ai/logs', name: 'AdminAiLogs', component: () => import('@/views/admin/AdminAiLogView.vue'), meta: { title: 'AI 调用日志 - 管理后台' } }
     ]
   }
 ]

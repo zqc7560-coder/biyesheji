@@ -19,6 +19,12 @@ import { fetchTags } from '@/api/tag'
 import { renderMarkdown } from '@/utils/markdown'
 import { decideSaveFailure, localDraftKey, resolveEditorSeed, VERSION_CONFLICT } from '@/utils/articleFlow'
 import { flattenCategoryTree, parseTagInput } from '@/utils/tagCategory'
+// M6：AI 摘要（课题重点）——按钮态探测 + 生成回填 + 降级处置
+import { aiSummary, aiStatus } from '@/api/ai'
+import { aiButtonState, summaryFailureAction, summaryBackfillHint } from '@/utils/ai'
+import { useUserStore } from '@/stores/user'
+
+const userStore = useUserStore()
 
 const route = useRoute()
 const router = useRouter()
@@ -46,6 +52,50 @@ const previewHtml = computed(() => renderMarkdown(form.contentMd))
 /** 标签：输入框以逗号/空格分隔，提交时切分为数组（后端 tags 是字符串数组契约）。
  *  M4：切分逻辑提升为 parseTagInput 纯函数（中英文逗号/大小写去重/上限截断），已单测。 */
 const tagList = computed(() => parseTagInput(form.tagsText))
+
+// ---------- M6：AI 摘要 ----------
+/** /api/ai/status 快照（null=探测未回来，按钮先灰防"点了才发现没配"） */
+const aiInfo = ref(null)
+const aiLoading = ref(false)
+/** 摘要来源位：0 手动 / 1 AI。AI 回填置 1；用户随后手动改摘要即回落 0
+ *  （"AI 生成"角标只对"未经人工改写的 AI 产物"负责——合规标识的语义边界） */
+const summarySource = ref(0)
+let aiBackfilling = false   // 区分"AI 回填触发的 watch"与"用户手动编辑触发的 watch"
+
+const aiBtn = computed(() => aiButtonState(aiInfo.value, userStore.isLoggedIn))
+
+async function probeAi() {
+  try { aiInfo.value = await aiStatus() } catch { aiInfo.value = null }
+}
+
+async function runAiSummary() {
+  if (!form.contentMd?.trim()) {
+    ElMessage.warning('先写点正文，AI 才有东西可总结')
+    return
+  }
+  aiLoading.value = true
+  try {
+    const r = await aiSummary({ title: form.title || undefined, contentMd: form.contentMd })
+    aiBackfilling = true
+    form.summary = r.summary
+    summarySource.value = 1
+    ElMessage.success('AI 摘要已回填，可继续修改')
+    const hint = summaryBackfillHint(r)
+    if (hint) ElMessage.info(hint)
+  } catch (e) {
+    const act = summaryFailureAction(e)
+    ElMessage.warning(act.message)
+    if (act.action === 'disable') probeAi()   // 未配置/被关闭：重探状态让按钮立刻变灰，别让用户反复碰壁
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+watch(() => form.summary, (v, old) => {
+  // AI 回填自身不改来源位；用户改过（无论在手输还是回填后）即视为人工摘要
+  if (!aiBackfilling && v !== old && summarySource.value === 1) summarySource.value = 0
+  aiBackfilling = false
+})
 
 // ---------- M4：分类/标签候选数据（编辑器不再写死种子三分类） ----------
 /** 分类扁平选项（带缩进 label）；拉取失败退化为空列表——分类是可选字段，不阻塞写作 */
@@ -111,6 +161,7 @@ async function load() {
     categoryId: a.category?.id ?? null, tagsText: (a.tags || []).map((t) => t.name).join(', '),
     cover: a.cover || '', allowComment: a.allowComment ?? 1, version: a.version, status: a.status
   })
+  summarySource.value = a.summarySource ?? 0   // M6：编辑已有文章时继承库里的摘要来源位
   // 本地草稿 vs 服务器版本：谁新用谁，但"用本地"也只是预填——必须用户主动保存才回库
   let local = null
   try { local = JSON.parse(localStorage.getItem(localDraftKey(articleId.value)) || 'null') } catch { /* 脏数据视为无 */ }
@@ -129,7 +180,7 @@ function buildPayload() {
     tags: tagList.value,
     cover: form.cover || null,
     summary: form.summary || null,
-    summarySource: 0,               // 手动：AI 来源在 M6 由生成动作改写此位
+    summarySource: summarySource.value,   // M6 落地：AI 回填置 1，用户手改回落 0（见上方 watch）
     contentMd: form.contentMd,
     allowComment: form.allowComment
     // status/version 由具体动作补：草稿/发布/更新三条路径语义不同
@@ -188,6 +239,7 @@ onMounted(() => {
   // M4：候选数据异步补充（失败静默：分类下拉空着也能保存草稿）
   fetchCategoryTree().then((tree) => { categoryOptions.value = flattenCategoryTree(tree) }).catch(() => {})
   fetchTags().then((ts) => { knownTagNames.value = ts.map((t) => t.name) }).catch(() => {})
+  probeAi()   // M6：AI 按钮态探测（公开接口，失败静默——探测挂了就当 AI 不可用）
 })
 onBeforeUnmount(() => clearTimeout(draftTimer))
 </script>
@@ -219,9 +271,15 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
       <div class="actions">
         <el-button :loading="saving" @click="saveDraft">存草稿</el-button>
         <el-button type="primary" :loading="saving" @click="publish">发布</el-button>
-        <el-tooltip content="AI 摘要在 M6（课题重点模块）接入" placement="top">
-          <el-button disabled>✨ AI 摘要</el-button>
+        <!-- M6：AI 摘要按钮——置灰依据 /api/ai/status 四态（关闭/未配置/未登录/额度尽），
+             tooltip 说清"为什么不能点"；可用态下带 loading（异步端点最长 35s） -->
+        <el-tooltip :content="aiBtn.disabled ? aiBtn.reason : '用默认模型生成摘要并回填（AI 结果仍需人工确认）'"
+                    placement="top">
+          <span>
+            <el-button :disabled="aiBtn.disabled" :loading="aiLoading" @click="runAiSummary">✨ AI 摘要</el-button>
+          </span>
         </el-tooltip>
+        <el-tag v-if="summarySource === 1" size="small" type="primary" effect="plain">摘要来源：AI</el-tag>
         <el-button link @click="router.back()">返回</el-button>
       </div>
     </div>

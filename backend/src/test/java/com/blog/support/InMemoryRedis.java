@@ -48,6 +48,17 @@ public final class InMemoryRedis {
                 .when(valueOps).set(anyString(), anyString());
         org.mockito.Mockito.doAnswer(inv -> store.put(inv.getArgument(0), inv.getArgument(1)))
                 .when(valueOps).set(anyString(), anyString(), any(Duration.class));
+        // M6 补齐：GET（AI 缓存读/配额读）与 INCR（配额计数）——语义与真 Redis 一致，
+        // increment 用 compute 保证原子性（测试里虽然多为单线程，但语义对齐才可信）
+        when(valueOps.get(anyString())).thenAnswer(inv -> store.get(inv.<String>getArgument(0)));
+        when(valueOps.increment(anyString())).thenAnswer(inv -> {
+            String k = inv.getArgument(0);
+            Object v = store.compute(k, (key, old) -> {
+                long n = old == null ? 0 : Long.parseLong(old.toString());
+                return String.valueOf(n + 1);
+            });
+            return Long.parseLong(v.toString());
+        });
         when(template.hasKey(anyString())).thenAnswer(inv -> store.containsKey(inv.<String>getArgument(0)));
         when(template.delete(anyString())).thenAnswer(inv -> {
             String key = inv.getArgument(0);

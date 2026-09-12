@@ -16,7 +16,10 @@ spring:
     name: blog-server
   datasource:
     # 本机 MySQL 服务运行中；密码可由环境变量注入，默认空串（课设本机 root 无密码直连）
-    url: ${BLOG_DB_URL:jdbc:mysql://127.0.0.1:3306/blog_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=utf8mb4}
+    # 注意：characterEncoding 要的是 **Java 字符集名**（UTF-8），不是 MySQL 排序字符集名——
+    # 写 utf8mb4 会在建连时抛 UnsupportedEncodingException（M6 真实冒烟抓到并修复；
+    # Connector/J 8 在 UTF-8 + useUnicode 下自动按 utf8mb4 与服务端协商）
+    url: ${BLOG_DB_URL:jdbc:mysql://127.0.0.1:3306/blog_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8}
     username: ${BLOG_DB_USERNAME:root}
     password: ${BLOG_DB_PASSWORD:}
     hikari:
@@ -64,7 +67,10 @@ blog:
     # 生产必须经 BLOG_ADMIN_PASSWORD 注入且首次登录后立即改密（AdminBootstrapRunner）
     init-password: ${BLOG_ADMIN_PASSWORD:Admin@123}            # 本机课设演示默认口令，生产经环境变量注入
   ai:
-    master-key: ${BLOG_AI_MASTER_KEY:}  # AES-GCM 主密钥，prod 环境变量注入，绝不入库
+    # AES-GCM 主密钥：环境变量 AI_KEY_ENC_SECRET 注入（任务书约定）。
+    # 默认值是写死在仓库里的开发占位串——等于"没有密钥"，生产部署必须替换：
+    #   openssl rand -hex 32   →   AI_KEY_ENC_SECRET=<64位hex>
+    master-key: ${AI_KEY_ENC_SECRET:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
 
 logging:
   level:

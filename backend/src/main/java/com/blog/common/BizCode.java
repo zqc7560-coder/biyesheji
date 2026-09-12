@@ -79,6 +79,10 @@ public enum BizCode {
     AI_KEY_INVALID(4101, "API Key 无效"),
     /** 连接测试：Base URL 网络不可达 */
     AI_BASE_URL_UNREACHABLE(4102, "Base URL 不可达"),
+    /** M6 新增：内置模型受保护（禁止删除/改身份字段，仅启停/设默认/换Key/调参）——已同步 API 文档 §1.4 */
+    AI_BUILTIN_PROTECTED(4006, "内置模型配置受保护，禁止该操作"),
+    /** M6 新增：AI 配置名重复（与 2103/2201 重名族对称）——已同步 API 文档 §1.4 */
+    AI_CONFIG_NAME_DUPLICATE(4007, "AI 配置名已存在"),
 
     // ---------- 系统配置（5xxx） ----------
     CONFIG_NOT_FOUND(5001, "配置项不存在");

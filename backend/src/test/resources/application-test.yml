@@ -26,6 +26,24 @@ spring:
       timeout: 200ms
       connect-timeout: 200ms
 
+# M6：AI 测试需要固定 AES-GCM 主密钥（64 位 hex=32 字节）。
+# 纯测试专用值——它加密的明文也只出现在测试里（sk-TEST-FAKE-*），与任何真实 Key 无关。
+# BLOG_AI_KEY_* 显式置空 + key-file 指向不存在路径：彻底禁掉 BuiltinModelKeySeeder，
+# 保证测试库里种子占位行（__PENDING_KEY_IMPORT__）不被真实 Key 覆盖——
+# 否则开发者本机 backend/.env 一旦存在，所有依赖"未导入 Key"态的用例会随环境漂移。
+blog:
+  ai:
+    master-key: 000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f
+    key-file: ./nonexistent-test-only.env
+BLOG_AI_KEY_DEEPSEEK: ""
+BLOG_AI_KEY_QWEN: ""
+
+# M6：测试用 @TestConfiguration 的 aiExecutor（同步直连池）覆盖 AiAsyncConfig 的
+# 真实线程池——同名 Bean 覆盖必须显式开闸。动机：MockMvc + 类级 @Transactional 下，
+# 异步线程看不到测试事务里预置的 ai_config 行（跨连接不可见），同步化后
+# 摘要管道全链路跑在测试事务内，可控可断言；超时/线程卸载语义在 35s 级不在单元层验证。
+spring.main.allow-bean-definition-overriding: true
+
 logging:
   level:
     com.blog: debug

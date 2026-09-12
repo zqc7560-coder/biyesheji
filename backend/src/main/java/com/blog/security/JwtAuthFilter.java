@@ -56,6 +56,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
 
     @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        // M6：DeferredResult 的 ASYNC 分派也要重新过本过滤器（默认 true=跳过）。
+        // 机制：asyncDispatch 会重放整条 Security 过滤链，URL 级 AuthorizationFilter
+        // 要求 /api/ai/** 已认证；若 JwtAuthFilter 被默认跳过，重放时上下文匿名，
+        // 已登录用户的异步端点会被误判 1001（MockMvc 实测复现）。无状态 JWT 在
+        // ASYNC 阶段照常解析 Bearer 头的代价≈0（不查库不碰 Redis 黑名单以外的路径），
+        // 换来的是"异步端点鉴权语义与同步端点完全一致"。
+        return false;
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String header = request.getHeader("Authorization");
