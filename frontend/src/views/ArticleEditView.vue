@@ -14,8 +14,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchArticle, createArticle, updateArticle, changeArticleStatus
 } from '@/api/article'
+import { fetchCategoryTree } from '@/api/category'
+import { fetchTags } from '@/api/tag'
 import { renderMarkdown } from '@/utils/markdown'
 import { decideSaveFailure, localDraftKey, resolveEditorSeed, VERSION_CONFLICT } from '@/utils/articleFlow'
+import { flattenCategoryTree, parseTagInput } from '@/utils/tagCategory'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,9 +43,28 @@ const saving = ref(false)
 /** 双栏预览：与详情页同一渲染管道（编辑所见=发布所见，杜绝"两套解析结果不一致"） */
 const previewHtml = computed(() => renderMarkdown(form.contentMd))
 
-/** 标签：输入框以逗号/空格分隔，提交时切分为数组（后端 tags 是字符串数组契约） */
-const tagList = computed(() =>
-  form.tagsText.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean).slice(0, 10))
+/** 标签：输入框以逗号/空格分隔，提交时切分为数组（后端 tags 是字符串数组契约）。
+ *  M4：切分逻辑提升为 parseTagInput 纯函数（中英文逗号/大小写去重/上限截断），已单测。 */
+const tagList = computed(() => parseTagInput(form.tagsText))
+
+// ---------- M4：分类/标签候选数据（编辑器不再写死种子三分类） ----------
+/** 分类扁平选项（带缩进 label）；拉取失败退化为空列表——分类是可选字段，不阻塞写作 */
+const categoryOptions = ref([])
+/** 已有标签名（给 el-autocomplete 做补全：近义标签是标签表头号脏数据来源，补全比校验便宜） */
+const knownTagNames = ref([])
+const tagSuggestions = computed(() => {
+  const last = (form.tagsText.split(/[,，\s]+/).pop() || '').trim().toLowerCase()
+  if (!last) return knownTagNames.value.slice(0, 12)
+  return knownTagNames.value.filter((n) => n.toLowerCase().includes(last)).slice(0, 12)
+})
+/** 选中补全项：把"正在输入的末段"替换为所选标签并补逗号（el-autocomplete 默认整体替换输入框，
+ *  会吞掉前面已输入的标签——必须手动回写整串） */
+function onPickTag(item) {
+  const parts = form.tagsText.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
+  if (parts.length) parts.pop()          // 丢掉末段半成品
+  parts.push(item.value)
+  form.tagsText = parts.join(', ') + ', '
+}
 
 // ---------- localStorage 草稿兜底 ----------
 let draftTimer = null
@@ -161,7 +183,12 @@ const publish = () => {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  // M4：候选数据异步补充（失败静默：分类下拉空着也能保存草稿）
+  fetchCategoryTree().then((tree) => { categoryOptions.value = flattenCategoryTree(tree) }).catch(() => {})
+  fetchTags().then((ts) => { knownTagNames.value = ts.map((t) => t.name) }).catch(() => {})
+})
 onBeforeUnmount(() => clearTimeout(draftTimer))
 </script>
 
@@ -170,10 +197,13 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
     <div class="editor-form">
       <el-input v-model="form.title" maxlength="200" show-word-limit placeholder="文章标题" size="large" />
       <div class="row">
-        <el-input v-model="form.tagsText" placeholder="标签（逗号分隔，最多 10 个，不存在的自动创建）" />
-        <el-select v-model="form.categoryId" placeholder="分类" clearable style="width: 140px">
-          <!-- M4 分类接口就绪后动态拉取；本期写死种子三分类（与 data.sql 对齐，避免依赖未实现接口） -->
-          <el-option label="技术" :value="1" /><el-option label="生活" :value="2" /><el-option label="随笔" :value="3" />
+        <!-- M4：标签输入补全已有标签（选中即追加），减少"同义词各建一个"的治理债 -->
+        <el-autocomplete v-model="form.tagsText" :fetch-suggestions="() => tagSuggestions.map((n) => ({ value: n }))"
+                         placeholder="标签（逗号分隔，最多 10 个，不存在的自动创建）" clearable style="width: 100%"
+                         @select="onPickTag" />
+        <el-select v-model="form.categoryId" placeholder="分类" clearable style="width: 160px">
+          <!-- M4：动态拉取分类树（扁平带缩进），不再写死种子三分类 -->
+          <el-option v-for="c in categoryOptions" :key="c.id" :label="c.label" :value="c.id" />
         </el-select>
       </div>
       <el-input v-model="form.summary" type="textarea" :rows="2" maxlength="500" show-word-limit

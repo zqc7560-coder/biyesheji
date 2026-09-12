@@ -71,7 +71,10 @@ public class SecurityConfig {
                         // （游客拿到未发布 id 时回 2001，见 ArticleService.assertReadable）。
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/api/articles", "/api/articles/*", "/api/articles/archive",
-                                "/api/users/*/articles").permitAll()
+                                "/api/users/*/articles",
+                                // M4：分类树与标签列表/标签云是公开导航数据（UC-V-06），
+                                // 只放行 GET——写口全部走 @PreAuthorize(category/tag:manage)
+                                "/api/categories", "/api/tags").permitAll()
                         // HTTP OPTIONS 预检不带 Authorization 头，必须放行否则跨域调试全挂
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

@@ -48,7 +48,13 @@ public enum BizCode {
 
     // ---------- 分类 / 标签 / 评论（21xx~23xx） ----------
     CATEGORY_NOT_EMPTY(2101, "分类下仍有文章，禁止删除"),
+    /** M4：两级约束的延伸护栏——子分类存在时禁止删除/挂接，错误码区段顺延（设计文档未单列，走 21xx 家族） */
+    CATEGORY_HAS_CHILDREN(2102, "存在子分类，禁止删除或挂接"),
+    /** M4：分类重名（Service 先行查重 + uk_name 唯一键并发兜底，与 2201 标签重名对称） */
+    CATEGORY_NAME_DUPLICATE(2103, "分类名已存在"),
     TAG_NAME_DUPLICATE(2201, "标签名重复"),
+    /** M4：标签 id 不存在/已删除（与 2003 分类不存在同语义的标签版） */
+    TAG_NOT_FOUND(2202, "标签不存在"),
     COMMENT_NOT_ALLOWED(2301, "文章不允许评论"),
     COMMENT_PARENT_INVALID(2302, "父评论不存在或层级超限"),
 

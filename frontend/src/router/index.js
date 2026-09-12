@@ -52,7 +52,10 @@ const routes = [
       { path: '', name: 'AdminDashboard', component: () => import('@/views/admin/AdminDashboardView.vue'), meta: { title: '仪表盘 - 管理后台' } },
       { path: 'users', name: 'AdminUsers', component: () => import('@/views/admin/AdminUserView.vue'), meta: { title: '用户管理 - 管理后台' } },
       // M3：文章治理页（UC-A-02），menu.js 里声明的 articles 入口在此落地
-      { path: 'articles', name: 'AdminArticles', component: () => import('@/views/admin/AdminArticleView.vue'), meta: { title: '文章管理 - 管理后台' } }
+      { path: 'articles', name: 'AdminArticles', component: () => import('@/views/admin/AdminArticleView.vue'), meta: { title: '文章管理 - 管理后台' } },
+      // M4：分类/标签治理页（UC-A-03/04），menu.js 声明的 categories/tags 入口落地
+      { path: 'categories', name: 'AdminCategories', component: () => import('@/views/admin/AdminCategoryView.vue'), meta: { title: '分类管理 - 管理后台' } },
+      { path: 'tags', name: 'AdminTags', component: () => import('@/views/admin/AdminTagView.vue'), meta: { title: '标签管理 - 管理后台' } }
     ]
   }
 ]
