@@ -48,13 +48,16 @@
 D:\毕业设计\
 ├── README.md            本文件：项目总览与阅读指引
 ├── 项目计划.md           核心交付物：目标范围、WBS、8 阶段计划（14 周）、里程碑、风险、难点预研
+├── backend\             Spring Boot 3 后端（blog-server）：src/main/java/com/blog/{common,config,module,job}
+├── frontend\            Vue3 + Vite 前端（blog-web）：src/{api,router,stores,utils,views}
 └── docs\
     ├── 需求分析.md       角色-用例、功能/非功能需求、用例图（Mermaid）、需求优先级
     ├── 系统设计.md       分层架构图、模块划分、三大核心时序图（登录/发文/AI 摘要）、选型理由
     ├── 数据库设计.md     15 张表字段级设计 + ER 图 + 完整 MySQL DDL
     ├── API接口设计.md    RESTful 接口清单（按模块分组）、统一响应体、错误码表
     ├── AI模块设计.md     ★ 设计重点：Key 加密、统一调用服务、提示词、缓存/限流/异步/降级、安全隐私
-    └── 部署与测试.md     Docker Compose 部署方案、三层测试策略、验收清单
+    ├── 部署与测试.md     Docker Compose 部署方案、三层测试策略、验收清单
+    └── 进度.md           模块清单与迭代日志（每轮开发后由 Qwen Bot 更新）
 ```
 
 ## 五、如何阅读本套文档
@@ -74,12 +77,12 @@ D:\毕业设计\
 ## 六、快速开始（工程搭建后）
 
 ```bash
-# 1. 基础设施（MySQL + Redis）
-docker compose up -d mysql redis
-# 2. 执行 docs/数据库设计.md 末尾的 DDL 脚本
-# 3. 后端
-cd blog-server && mvn spring-boot:run
-# 4. 前端
-cd blog-web && npm i && npm run dev
-# 5. 访问 http://localhost:5173 ，管理员账号 admin / Admin@123（首次登录后修改）
+# 1. 基础设施：本机 MySQL(127.0.0.1:3306) 与 Redis(127.0.0.1:6379) 运行中
+#    执行 docs/数据库设计.md §5 的 DDL 建库 blog_db（M1 提供独立 schema.sql）
+# 2. 后端（Java 17+；本机命令用 Maven 全路径，详见 docs/进度.md 环境约束）
+cd backend && mvn spring-boot:run
+# 3. 前端（Node 20+）
+cd frontend && npm install && npm run dev
+# 4. 访问 http://localhost:5173 （/api 由 Vite 代理到 8080），管理员 admin / Admin@123（M2 落地后生效）
+# 5. 测试：后端 mvn test（H2 内存库，无需任何外部中间件）；前端 npm run test（Vitest）
 ```

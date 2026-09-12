@@ -1,0 +1,67 @@
+# =====================================================================
+# 个人博客系统后端 · 运行时主配置（dev 直连本机中间件）
+# 设计依据：《部署与测试.md》§1.1 —— dev / docker / prod 三 profile，
+# 本文件是"默认=dev"的公共部分，敏感值一律环境变量占位、本地不配也能起。
+# =====================================================================
+server:
+  port: 8080
+  servlet:
+    context-path: /          # /api 前缀由各 Controller 显式声明，见 HealthController 注释
+  tomcat:
+    threads:
+      max: 100               # 容量基线（《部署与测试.md》§1.4），压测 200 并发下靠队列排队不炸线程
+
+spring:
+  application:
+    name: blog-server
+  datasource:
+    # 本机 MySQL 服务运行中；密码可由环境变量注入，默认空串（课设本机 root 无密码直连）
+    url: ${BLOG_DB_URL:jdbc:mysql://127.0.0.1:3306/blog_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=utf8mb4}
+    username: ${BLOG_DB_USERNAME:root}
+    password: ${BLOG_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10  # 2C4G 基线：10 连接足够（读多写少 + 缓存挡热点）
+      connection-timeout: 3000
+  data:
+    redis:
+      host: ${BLOG_REDIS_HOST:127.0.0.1}
+      port: ${BLOG_REDIS_PORT:6379}
+      password: ${BLOG_REDIS_PASSWORD:}   # 本机 Redis 无密码
+      timeout: 2s
+  servlet:
+    multipart:
+      max-file-size: 5MB     # 与《API接口设计.md》文件模块 3002 错误码的 5MB 限制对齐
+      max-request-size: 6MB  # Nginx client_max_body_size 6m 同值
+
+# MyBatis-Plus：下划线列名→驼峰属性 全局映射；逻辑删除语义（@TableLogic 字段）
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false            # 关掉启动 ASCII logo，生产日志干净
+    db-config:
+      id-type: auto          # 与 DDL 自增主键一致（《数据库设计.md》§1.2）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 在线接口文档（Knife4j → /doc.html）；prod profile 中关闭
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+knife4j:
+  enable: true
+
+# 业务自定义配置（JWT 密钥、上传目录等）——M2 起使用，骨架期先占位对齐命名
+blog:
+  jwt:
+    secret: ${BLOG_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}  # ≥32B；prod 必须注入
+    expire-seconds: 7200            # 2h 短 TTL（黑名单方案补齐登出，见系统设计 §3.1）
+  upload:
+    dir: ${BLOG_UPLOAD_DIR:./uploads}   # 本地磁盘映射 /uploads（ADR-5：不接 OSS）
+  ai:
+    master-key: ${BLOG_AI_MASTER_KEY:}  # AES-GCM 主密钥，prod 环境变量注入，绝不入库
+
+logging:
+  level:
+    com.blog: info

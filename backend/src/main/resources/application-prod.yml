@@ -1,0 +1,33 @@
+# =====================================================================
+# prod profile：生产覆盖项 —— 所有密钥强制走环境变量（无默认值=不配就启动失败，
+# 故意让"漏配密钥"在启动期炸出来，而不是运行期静默用弱密钥）。
+# 在线文档关闭：doc.html 暴露接口面在生产是净负资产。
+# =====================================================================
+spring:
+  datasource:
+    url: ${BLOG_DB_URL}
+    username: ${BLOG_DB_USERNAME}
+    password: ${BLOG_DB_PASSWORD}
+  data:
+    redis:
+      host: ${BLOG_REDIS_HOST}
+      password: ${BLOG_REDIS_PASSWORD}
+
+blog:
+  jwt:
+    secret: ${BLOG_JWT_SECRET}
+  ai:
+    master-key: ${BLOG_AI_MASTER_KEY}
+
+knife4j:
+  enable: false
+springdoc:
+  api-docs:
+    enabled: false
+
+logging:
+  level:
+    root: warn
+    com.blog: info
+  file:
+    name: ./logs/blog-server.log   # 容器内由卷挂载 /app/logs，logback-spring.xml 负责按日滚动

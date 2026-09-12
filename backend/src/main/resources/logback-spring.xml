@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志滚动策略（WBS 1.2.2：logback 按日滚动）：
+  - 控制台：dev 直接看
+  - 文件：按日切分 blog-server.yyyy-MM-dd.log，保留 14 天（与《部署与测试.md》日志保留策略一致），
+    总量 1GB 封顶，防止演示机磁盘被日志写满。
+  - 错误单独一份 *_error.log：排障时不用在 INFO 海里 grep。
+-->
+<configuration>
+  <property name="LOG_DIR" value="./logs"/>
+  <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>${PATTERN}</pattern></encoder>
+  </appender>
+
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/blog-server.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/blog-server.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>14</maxHistory>
+      <totalSizeCap>1GB</totalSizeCap>
+    </rollingPolicy>
+    <encoder><pattern>${PATTERN}</pattern></encoder>
+  </appender>
+
+  <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/blog-server-error.log</file>
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>ERROR</level>
+    </filter>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/blog-server-error.%d{yyyy-MM-dd}.log</fileNamePattern>
+      <maxHistory>14</maxHistory>
+    </rollingPolicy>
+    <encoder><pattern>${PATTERN}</pattern></encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="FILE"/>
+    <appender-ref ref="ERROR_FILE"/>
+  </root>
+</configuration>

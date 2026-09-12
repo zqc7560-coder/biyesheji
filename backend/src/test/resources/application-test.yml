@@ -1,0 +1,31 @@
+# =====================================================================
+# test profile：单元/接口测试专用 —— 数据源切换 H2 内存库（MySQL 兼容模式）。
+# 环境约束（进度台账）：测试绝不依赖真实 MySQL 账号口令。
+# =====================================================================
+spring:
+  datasource:
+    # MODE=MySQL: 反引号/AUTO_INCREMENT 等 MySQL 方言可用
+    # DATABASE_TO_LOWER: 未加引号的标识符统一小写，与 MySQL 行为一致，列名映射不乱
+    # 独立数据库名 blog_test + DB_CLOSE_DELAY=-1：同一 JVM 内多测试类共享数据
+    url: jdbc:h2:mem:blog_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  sql:
+    init:
+      mode: always
+      # H2 版 DDL：与 docs schema.sql 同步维护，剥离了 FULLTEXT/UNSIGNED/ON UPDATE 等 H2 不支持项
+      schema-locations: classpath:sql/schema-h2.sql
+      data-locations: classpath:sql/data-h2.sql
+  data:
+    redis:
+      # 测试环境 Redis：指向一个必然无监听的端口，连接探测快速失败（不长时间阻塞），
+      # 由测试里的 @MockBean StringRedisTemplate 接管，不产生真实网络依赖。
+      host: 127.0.0.1
+      port: 6390
+      timeout: 200ms
+      connect-timeout: 200ms
+
+logging:
+  level:
+    com.blog: debug
