@@ -67,7 +67,9 @@ service.interceptors.response.use(
     if (r.ok) return r.payload
     if (r.authDead) redirectToLogin()
     ElMessage.error(r.message || '请求失败')
-    return Promise.reject(new Error(r.message))
+    // M3：错误对象挂业务码——乐观锁冲突(2004)等需要"按码分支处置"的场景，
+    // 调用方拿 message 字符串匹配是脆的，code 才是契约（后端 BizCode 稳定枚举）
+    return Promise.reject(Object.assign(new Error(r.message), { code: response.data?.code }))
   },
   (error) => {
     // HTTP 层错误也优先尝试读信封（401/403/429 时后端仍返回统一结构）
@@ -75,6 +77,9 @@ service.interceptors.response.use(
     const r = body ? resolveEnvelope(body) : null
     if (r?.authDead) redirectToLogin()
     ElMessage.error(r && !r.ok ? r.message : '网络异常，请稍后重试')
+    if (r && !r.ok && body?.code != null) {
+      return Promise.reject(Object.assign(error, { code: body.code, bizMessage: body.message }))
+    }
     return Promise.reject(error)
   }
 )

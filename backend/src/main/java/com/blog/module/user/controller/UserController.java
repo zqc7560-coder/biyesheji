@@ -1,6 +1,9 @@
 package com.blog.module.user.controller;
 
+import com.blog.common.PageResult;
 import com.blog.common.Result;
+import com.blog.module.article.service.ArticleService;
+import com.blog.module.article.vo.ArticleVO;
 import com.blog.module.user.dto.ChangePasswordDTO;
 import com.blog.module.user.dto.ProfileUpdateDTO;
 import com.blog.module.user.service.UserService;
@@ -12,6 +15,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,6 +36,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class UserController {
 
     private final UserService userService;
+    /** M3：作者公开文章列表复用文章服务（跨模块只依赖 Service 层，符合系统设计调用链约定） */
+    private final ArticleService articleService;
 
     /** GET /api/users/profile?userId=（缺省为自己；查他人仅公开字段） */
     @Operation(summary = "查看资料")
@@ -68,5 +74,20 @@ public class UserController {
     public Result<UserVO> avatar(@AuthenticationPrincipal LoginUser me,
                                  @RequestParam("file") MultipartFile file) {
         return Result.ok(userService.uploadAvatar(me, file));
+    }
+
+    /**
+     * GET /api/users/{id}/articles（M3 补全，文档 §3 用户模块最后一行）：
+     * 某作者的公开文章——用户主页"TA 的文章"入口。
+     * 公开接口（SecurityConfig 已放行 GET），Service 层强制 status=1 过滤，
+     * 游客永远看不到目标的草稿（可见性矩阵与文章详情同一把尺子）。
+     */
+    @Operation(summary = "某作者的公开文章")
+    @GetMapping("/{id}/articles")
+    public Result<PageResult<ArticleVO>> authorArticles(@PathVariable Long id,
+                                                        @RequestParam(defaultValue = "1") long pageNum,
+                                                        @RequestParam(defaultValue = "10") long pageSize) {
+        return Result.ok(articleService.authorArticles(id,
+                Math.max(1, pageNum), Math.min(Math.max(1, pageSize), 100)));
     }
 }

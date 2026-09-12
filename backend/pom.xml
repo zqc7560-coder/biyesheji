@@ -96,6 +96,15 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- jsoup（M3）：Markdown 正文服务端清洗与纯文本抽取（WBS 1.4.3 / NFR-05 双防线的第一道）。
+         版本不受 Boot parent 管理，显式钉 1.17.2：其 text() 不收集 script/style 内容、
+         clean(Safelist.none()) 会先解码 HTML 实体再剥离标签，能拦住实体混淆绕过 -->
+    <dependency>
+      <groupId>org.jsoup</groupId>
+      <artifactId>jsoup</artifactId>
+      <version>1.17.2</version>
+    </dependency>
+
     <!-- Lombok：精简实体样板代码（@Data/@Builder），编译期生效不进产物 -->
     <dependency>
       <groupId>org.projectlombok</groupId>

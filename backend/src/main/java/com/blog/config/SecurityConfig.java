@@ -44,7 +44,7 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final ObjectMapper objectMapper;
 
-    /** 公开路径白名单：登录注册、健康检查、接口文档；GET 只读内容接口在 M3 评估后再放开 */
+    /** 公开路径白名单：登录注册、健康检查、接口文档、上传直出 */
     private static final String[] PUBLIC_PATHS = {
             "/api/auth/login",
             "/api/auth/register",
@@ -65,6 +65,13 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        // M3：文章只读接口对游客开放（UC-V-01/02 是 P0 游客用例）。
+                        // 只放行 GET 且精确到三组路径——写操作与 mine 参数仍要登录；
+                        // 草稿/下线的"公开但不可见"不靠这层，由 Service 可见性矩阵兜底
+                        // （游客拿到未发布 id 时回 2001，见 ArticleService.assertReadable）。
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/api/articles", "/api/articles/*", "/api/articles/archive",
+                                "/api/users/*/articles").permitAll()
                         // HTTP OPTIONS 预检不带 Authorization 头，必须放行否则跨域调试全挂
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

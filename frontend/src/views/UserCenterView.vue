@@ -1,10 +1,33 @@
 <script setup>
-/** 用户中心占位（M0）：仅证明 requiresAuth 守卫生效；我的文章/资料编辑/编辑器在 M3 落地 */
+/**
+ * 用户中心壳（M3）：/user 从单页占位升级为带子导航的布局容器，
+ * 子路由（我的文章/编辑器）经 <router-view/> 挂载。
+ * M2 时代的资料编辑占位内容拆到 UserHomeView（默认子路由）。
+ */
+import { useRoute, useRouter } from 'vue-router'
+const route = useRoute()
+const router = useRouter()
+
+const NAVS = [
+  { path: '/user', label: '总览' },
+  { path: '/user/articles', label: '我的文章' },
+  { path: '/user/articles/new', label: '✍ 写文章' }
+]
 </script>
 
 <template>
-  <main style="max-width: 720px; margin: 80px auto">
-    <h2>用户中心</h2>
-    <p>（占位页 —— M3 文章模块起在此挂载「我的文章 / Markdown 编辑器 / 资料设置」）</p>
+  <main class="uc">
+    <nav class="uc-nav">
+      <router-link v-for="n in NAVS" :key="n.path" :to="n.path"
+                   :class="{ active: route.path === n.path }">{{ n.label }}</router-link>
+    </nav>
+    <router-view />
   </main>
 </template>
+
+<style scoped>
+.uc { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+.uc-nav { display: flex; gap: 18px; border-bottom: 1px solid #ebeef5; margin-bottom: 16px; }
+.uc-nav a { text-decoration: none; color: #606266; padding: 8px 2px; font-size: 14px; }
+.uc-nav a.active, .uc-nav a:hover { color: #409eff; border-bottom: 2px solid #409eff; }
+</style>
