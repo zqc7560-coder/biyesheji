@@ -1,0 +1,12 @@
+# Docker 构建上下文排除清单（M12）。
+# 关键红线：.env 里有真实 AI Key（BuiltinModelKeySeeder 的本机兜底文件），
+# 绝不能被 COPY src 之类操作带进镜像层——上下文排除是第一道闸，
+# 第二道闸是真实 Key 只经 compose 环境变量注入运行容器（见 deploy/README §3）。
+.env
+*.key
+*.pem
+target/
+logs/
+uploads/
+boot-smoke-*.log
+.git

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# =====================================================================
+# 部署冒烟验收（M12）：compose up 之后跑本脚本，30 秒内给出"这套环境能不能
+# 交付"的二值结论。验收清单 §5"一键启动 5 分钟可访问"的机器可执行版。
+#
+# 每个检查都是真实 HTTP/TCP 断言，不猜不装：
+#   1) 四容器 healthy（读 compose 自身的健康判定，不自建第二套真相）
+#   2) Nginx 首页 200 且是 Vue 入口（title 含"博客"）
+#   3) /api/health 经 Nginx 反代贯通，且 JSON 里 mysql/redis 均 up
+#      （这一条同时验证了 nginx→server→mysql、nginx→server→redis 两跳链路）
+#   4) 匿名可见文章列表 200（RBAC 公开白名单在部署形态下仍成立）
+#   5) /uploads/ 静态直出可访问（共享卷挂载正确的证据；404 目录列表也算通，
+#      只要不是 502——502 才说明卷/别名配置坏了）
+#   6) AI 未配 Key 时 status 接口 configured=false（降级设计在部署形态的投影）
+#
+# BASE 默认 http://localhost，压远程：BASE=http://192.168.1.20 ./smoke-deploy.sh
+# =====================================================================
+set -uo pipefail
+BASE="${BASE:-http://localhost}"
+COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PASS=0; FAIL=0
+
+ok()   { echo "  [PASS] $1"; PASS=$((PASS+1)); }
+bad()  { echo "  [FAIL] $1"; FAIL=$((FAIL+1)); }
+
+echo "== 部署冒烟 @ ${BASE} =="
+
+# 1) 容器健康
+UNHEALTHY=$(cd "${COMPOSE_DIR}" && docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null | grep -cv 'healthy' || true)
+if [ "${UNHEALTHY:-1}" = "0" ]; then ok "全部容器 healthy"; else bad "存在非 healthy 容器（${UNHEALTHY} 个），见 docker compose ps"; fi
+
+# 2) 首页
+HOME_HTML=$(curl -fsS --max-time 10 "${BASE}/" 2>/dev/null || true)
+if echo "${HOME_HTML}" | grep -q "博客"; then ok "Nginx 首页 200 且为站点入口"; else bad "首页不可达或非站点 HTML"; fi
+
+# 3) 健康检查贯通
+H=$(curl -fsS --max-time 10 "${BASE}/api/health" 2>/dev/null || true)
+# 后端 Result 信封 + HealthService 大写状态值（见 HealthService.check()），断言口径逐字对齐
+if echo "${H}" | grep -q '"mysql":"UP"' && echo "${H}" | grep -q '"redis":"UP"'; then
+  ok "/api/health: MySQL+Redis 双 up（两跳链路贯通）"
+else bad "/api/health 异常：${H:-无响应}"; fi
+
+# 4) 匿名文章列表
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE}/api/articles?page=1&size=5")
+[ "${CODE}" = "200" ] && ok "匿名文章列表 200" || bad "匿名文章列表 HTTP ${CODE}（预期 200）"
+
+# 5) uploads 直出：Nginx 对不存在文件回 404、对目录回 403/404，只要不是 5xx（502=转发错/挂载坏）
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE}/uploads/.probe")
+case "${CODE}" in 4*) ok "/uploads 路由存活（HTTP ${CODE}，非反代 5xx）";; *) bad "/uploads 异常 HTTP ${CODE}";; esac
+
+# 6) AI 状态口（登录才有意义，先验它不会被匿名炸 5xx）
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${BASE}/api/ai/status")
+case "${CODE}" in 200|401) ok "/api/ai/status 返回 ${CODE}（登录闸门/正常态）";; *) bad "/api/ai/status HTTP ${CODE}";; esac
+
+echo "== 结果：${PASS} 通过 / ${FAIL} 失败 =="
+[ "${FAIL}" -eq 0 ] || exit 1

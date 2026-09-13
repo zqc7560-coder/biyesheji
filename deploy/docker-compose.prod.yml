@@ -1,0 +1,36 @@
+# =====================================================================
+# 生产加固 override（M12）：docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 只写"与演示基线的差异"，基线见 docker-compose.yml——override 文件做加法不做替换，
+# 读起来才能一眼看清生产比演示多了什么（资源护栏、重启策略、日志上限）。
+# =====================================================================
+
+services:
+  mysql:
+    # 生产不暴露 3306 到宿主机（compose 基线本就没映射端口，仅内部网络可达），
+    # 这里加资源护栏：演示机 2C4G，MySQL 顶格 1G 防止挤压 JVM
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  blog-server:
+    restart: unless-stopped        # 演示基线不加：开发中崩了要看现场；生产自动拉活
+    deploy:
+      resources:
+        limits:
+          memory: 768m             # JVM -XX:MaxRAMPercentage=75% → 堆上限约 576m，符合 §1.4 的 512m 基线并留 Metaspace/线程栈余量
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }   # 容器 stdout 也封顶，防刷爆系统盘
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 320m             # maxmemory 256mb + AOF 缓冲余量
+
+  nginx:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }

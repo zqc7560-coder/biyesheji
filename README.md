@@ -86,3 +86,17 @@ cd frontend && npm install && npm run dev
 # 4. 访问 http://localhost:5173 （/api 由 Vite 代理到 8080），管理员 admin / Admin@123（M2 落地后生效）
 # 5. 测试：后端 mvn test（H2 内存库，无需任何外部中间件）；前端 npm run test（Vitest）
 ```
+
+## 七、生产部署（M12）
+
+```bash
+# Linux 目标机（Ubuntu 22.04 + Docker Compose v2）一键起全栈：
+cd deploy && cp .env.example .env && vi .env      # 填密钥（模板注释含生成命令）
+cd ../frontend && npm ci && npm run build          # dist 由 Nginx 挂载
+cd ../deploy && docker compose up -d --build       # 4 容器 healthy 后访问 http://IP/
+bash scripts/smoke-deploy.sh                       # 部署后 6 项验收断言（全 PASS 才交付）
+```
+
+细节（备份恢复 crontab、HTTPS、prod override、已知坑）见 `deploy/README.md`。
+本机无 Docker 的开发环境用 §六 的 dev 直连跑法；compose 资产的正确性由
+`DeployAssetsM12Test`（结构解析/挂载路径/env 模板完整性/超时链单调/密钥红线）在每次 `mvn test` 把守。
