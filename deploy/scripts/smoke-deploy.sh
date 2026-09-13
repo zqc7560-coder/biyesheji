@@ -30,7 +30,16 @@ echo "== 部署冒烟 @ ${BASE} =="
 # 栈没起）时统计数为 0 → "全部 healthy" PASS —— 无中生有。改为显式三段判定：
 # 空列表=FAIL；非空但有 Status 不含 healthy 的行=FAIL 并列出坏的那几行。
 # （nginx 服务同轮补了 healthcheck，"全部容器 healthy"口径自此对四服务成立。）
-PS_OUT=$(cd "${COMPOSE_DIR}" && docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null || true)
+#
+# COMPOSE_PROJECT 透传（M16 实跑抓出的真实接线缺陷）：verify-deploy.sh 用
+# `-p blog-verify` 起栈，本脚本若不认同名 project，ps 查到的是默认 project
+# （目录名 deploy）的空列表 → 第 1 项必 FAIL。假绿防线反过来把"调用方与
+# 被检查对象不是同一个栈"这种错配给逮住了，修法=共享 project 而非拆防线。
+COMPOSE_ARGS=()
+[ -n "${COMPOSE_PROJECT:-}" ] && COMPOSE_ARGS+=(-p "${COMPOSE_PROJECT}")
+# 空数组必须用 ${arr[@]+"${arr[@]}"} 展开——"${arr[@]:-}" 会扩出一个空串参数，
+# docker compose 收到后直接报 unknown command（M16 实跑同族第二坑，verify 端先炸）
+PS_OUT=$(cd "${COMPOSE_DIR}" && docker compose ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} ps --format '{{.Name}} {{.Status}}' 2>/dev/null || true)
 if [ -z "${PS_OUT}" ]; then
   bad "compose ps 为空——栈未启动或 project/目录不对（此情形绝不判通过）"
 elif echo "${PS_OUT}" | grep -qv 'healthy'; then

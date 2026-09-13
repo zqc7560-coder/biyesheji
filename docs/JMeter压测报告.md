@@ -129,7 +129,25 @@ address)`（errno 99 = 临时端口耗尽）。直连 8080 同一场景 0 错误
 回归锁：`DeployAssetsM12Test.healthyVerdictCannotBeVacuous`（四服务 healthcheck
 齐备性——nginx 同轮补了 healthcheck，"全部容器 healthy"口径自此对四服务闭合）。
 
-### 3.3 【判读记录，非缺陷】两次作废运行
+### 3.3 【已修·接线】verify-deploy.sh 首跑三连炸（入口自身是 M16 交付物，也要真跑验证）
+
+一键验收入口首次全链路实跑连续暴露 3 个接线缺陷——都是"脚本从未被执行过"
+的静默债，全部由实跑抓出并同轮修复 + 回归锁：
+
+1. **project 错配**：verify 用 `-p blog-verify` 起栈，smoke 不带 `-p` 查默认
+   project → 空 ps → 第 1 项 FAIL（讽刺的是 FAIL 正是 §3.2 的假绿防线在正确
+   工作）。修复=COMPOSE_PROJECT 环境变量透传。
+2. **MSYS 路径喂原生 python**：`python ${HERE}/portability-check.py` 被解析成
+   `D:\d\毕业设计\...`（run-load-test.sh 早已踩过的坑同族复现）。修复=cygpath -w。
+3. **空数组展开毒化命令行**：`"${PC_ARGS[@]:-}"` 数组为空时扩出一个空串参数 →
+   argparse 报 unrecognized arguments。修复=`${arr[@]+"${arr[@]}"}` 惯用法，
+   且全 scripts 目录加"禁旧形态复活"机械扫描（过滤 # 行，M13 坑③口径）。
+
+回归锁：`DeployAssetsM12Test.healthyVerdictCannotBeVacuous` 追加 3 条断言
+（project 透传⇄接收、cygpath、[@]:-} 禁用扫描）。**教训：纯文件断言挡得住
+"内容错"，挡不住"从未跑过"——验收入口自己也要进实跑清单。**
+
+### 3.4 【判读记录，非缺陷】两次作废运行
 
 - `ai-20260914-044642` / `ai-20260914-052842`：90%+ 请求
   `HttpHostConnectException :8080 refused`——当时 blog-server 容器被手工重启，

@@ -63,12 +63,21 @@ done
 "${COMPOSE[@]}" ps
 
 echo "== [3/4] 部署冒烟（6 项在线断言）=="
-BASE="${BASE:-http://localhost}" bash "${HERE}/smoke-deploy.sh" || { echo "FAIL: smoke-deploy"; exit 1; }
+# COMPOSE_PROJECT 透传：smoke-deploy.sh 第 1 项要查同名 project 的 ps——
+# 不传则它查默认 project（空列表）必 FAIL。M16 实跑抓出的接线错配。
+BASE="${BASE:-http://localhost}" COMPOSE_PROJECT="${PROJECT}" bash "${HERE}/smoke-deploy.sh" || { echo "FAIL: smoke-deploy"; exit 1; }
 
 echo "== [4/4] 可移植性验收（10 项：灌库/种子/开箱即用/端到端/红线）=="
 PC_ARGS=()
 [ "${SKIP_AI:-0}" = "1" ] && PC_ARGS+=(--skip-ai)
-python "${HERE}/portability-check.py" --base "${BASE:-http://localhost}" "${PC_ARGS[@]:-}" \
+# ${HERE} 是 MSYS 风格（/d/...），原生 python.exe 会解析成 D:\d\...——
+# 必须 cygpath -w 转 Windows 路径（与 run-load-test.sh 喂 ai_switch.py 同法，
+# M16 实跑抓出：verify 第 4 步 'can't open file D:\d\毕业设计\...'）。
+# 空数组展开用 ${arr[@]+"${arr[@]}"} 惯用法：`"${arr[@]:-}"` 在数组为空时会
+# 扩出一个【空串参数】（M16 实跑抓出：argparse 报 unrecognized arguments）——
+# set -u 下裸 "${arr[@]}" 虽可用，但惯用法在 bash 3/4 与两种 set 状态下语义一致。
+PY_SCRIPT="$(cygpath -w "${HERE}/portability-check.py")"
+python "${PY_SCRIPT}" --base "${BASE}" ${PC_ARGS[@]+"${PC_ARGS[@]}"} \
   || { echo "FAIL: portability-check"; exit 1; }
 
 echo "== 收尾 =="

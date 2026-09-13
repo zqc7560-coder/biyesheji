@@ -484,6 +484,31 @@ class DeployAssetsM12Test {
         String verify = read("deploy/scripts/verify-deploy.sh");
         assertTrue(verify.contains("[ -n \"${PS_OUT}\" ]"),
                 "verify-deploy.sh 等待循环必须空输出不break（同族假绿防线）");
+        // project 接线（M16 实跑抓出）：verify 用 -p blog-verify 起栈，smoke 若
+        // 不接收 COMPOSE_PROJECT 就查默认 project 的空列表→第 1 项必 FAIL。
+        // 两端各钉一条，防止将来"顺手删掉一个变量"再拆掉这条线。
+        assertTrue(verify.contains("COMPOSE_PROJECT=\"${PROJECT}\""),
+                "verify-deploy.sh 必须把 project 名透传给 smoke-deploy.sh");
+        assertTrue(smoke.contains("COMPOSE_PROJECT:-"),
+                "smoke-deploy.sh 必须读 COMPOSE_PROJECT 组 compose 参数（否则跨 project 查空栈）");
+        // MSYS 路径→原生 python 的转换（M16 实跑抓出：verify 第 4 步直接
+        // python "${HERE}/portability-check.py" 报 can't open file D:\d\...）
+        assertTrue(verify.contains("cygpath -w"),
+                "verify-deploy.sh 喂原生 python 的路径必须 cygpath -w（MSYS 路径直传必坏）");
+        // 空数组展开陷阱（M16 实跑同族第二坑）："${arr[@]:-}" 数组为空时
+        // 扩出一个【空串参数】——portability-check 收到报 unrecognized
+        // arguments、docker compose 收到报 unknown command。正解是
+        // ${arr[@]+"${arr[@]}"} 惯用法。全 scripts 目录禁旧形态复活。
+        // 只扫非注释行（M13 坑③：注释里的反例说明文本会误伤整文件 contains）。
+        for (String rel : List.of("deploy/scripts/verify-deploy.sh",
+                "deploy/scripts/smoke-deploy.sh", "deploy/scripts/backup-mysql.sh",
+                "deploy/scripts/restore-mysql.sh")) {
+            String executable = read(rel).lines()
+                    .filter(l -> !l.strip().startsWith("#"))
+                    .collect(Collectors.joining("\n"));
+            assertFalse(executable.contains("[@]:-}"),
+                    rel + " 可执行行出现 \"${arr[@]:-}\" 空数组展开形态——空数组时会扩出空串参数毒化命令行");
+        }
     }
 
     /**
