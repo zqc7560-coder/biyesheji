@@ -272,6 +272,13 @@ public class ResultParserService {
         if (!s.codePoints().anyMatch(cp -> Character.isLetterOrDigit(cp))) {
             return null;
         }
+        // JSON 结构字符闸门：畸形 JSON（如嵌套对象 [{"name":"A"}]）被判解析失败后退化
+        // 切分时，会切出 "[{\"name\":\"A" 这类语法碎片——它们恰好能躲过长度/空白/符号
+        // 全部既有闸门。合法技术标签（C++/Rust/Java 等）从不使用 {}[] 字符，一刀切弃掉
+        // 零误伤，且宁缺勿污（tag.name 唯一列，灌进语法碎片治理成本极高）。
+        if (s.chars().anyMatch(c -> c == '{' || c == '}' || c == '[' || c == ']')) {
+            return null;
+        }
         // emoji 与空白同样丢弃：提示词明令禁止，服务端要能自证执行（答辩可演示）
         if (s.chars().anyMatch(Character::isWhitespace) || s.codePoints().anyMatch(cp -> cp > 0xFFFF)) {
             return null;

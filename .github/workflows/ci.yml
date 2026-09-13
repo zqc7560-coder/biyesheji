@@ -26,8 +26,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Run unit & integration tests (H2)
-        run: mvn -B test
+      - name: Run unit & integration tests (H2) + coverage gate
+        # M11：test 升 verify 并激活 coverage-gate —— 覆盖率退化到验收线
+        # （全工程 60% / AI 包 75%，《部署与测试.md》§2）以下时 CI 亮红
+        run: mvn -B verify -Pcoverage-gate
 
   frontend:
     runs-on: ubuntu-latest

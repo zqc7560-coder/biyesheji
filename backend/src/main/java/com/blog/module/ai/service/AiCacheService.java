@@ -45,6 +45,10 @@ public class AiCacheService {
     /**
      * 内容归一化哈希（§6.1 公式逐字实现）：去全部空白 → 去图片语法 → 小写，
      * 与标题拼接后取 SHA-256 hex（CHAR(64)，同时进 ai_call_log.content_hash 供审计排查）。
+     *
+     * <p>已知边界（M11 测试钉死于 AiCacheQuotaM11Test）：Java 的 \s 只覆盖 ASCII 空白，
+     * 全角空格 U+3000 不参与归一——与文档公式口径一致；扩公式=全体历史缓存键作废，
+     * 属于必须走评审的显式变更，不要顺手改。
      */
     public static String contentHash(String title, String contentMd) {
         String normalized = contentMd.replaceAll("\\s+", "")
