@@ -26,8 +26,18 @@ bad()  { echo "  [FAIL] $1"; FAIL=$((FAIL+1)); }
 echo "== 部署冒烟 @ ${BASE} =="
 
 # 1) 容器健康
-UNHEALTHY=$(cd "${COMPOSE_DIR}" && docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null | grep -cv 'healthy' || true)
-if [ "${UNHEALTHY:-1}" = "0" ]; then ok "全部容器 healthy"; else bad "存在非 healthy 容器（${UNHEALTHY} 个），见 docker compose ps"; fi
+# M16 修复假绿：旧写法 `grep -cv 'healthy'` 在 ps 输出为空（project 名不对/
+# 栈没起）时统计数为 0 → "全部 healthy" PASS —— 无中生有。改为显式三段判定：
+# 空列表=FAIL；非空但有 Status 不含 healthy 的行=FAIL 并列出坏的那几行。
+# （nginx 服务同轮补了 healthcheck，"全部容器 healthy"口径自此对四服务成立。）
+PS_OUT=$(cd "${COMPOSE_DIR}" && docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null || true)
+if [ -z "${PS_OUT}" ]; then
+  bad "compose ps 为空——栈未启动或 project/目录不对（此情形绝不判通过）"
+elif echo "${PS_OUT}" | grep -qv 'healthy'; then
+  bad "存在非 healthy 容器：$(echo "${PS_OUT}" | grep -v 'healthy' | tr '\n' '; ')"
+else
+  ok "全部容器 healthy（$(echo "${PS_OUT}" | wc -l | tr -d ' ') 个）"
+fi
 
 # 2) 首页
 HOME_HTML=$(curl -fsS --max-time 10 "${BASE}/" 2>/dev/null || true)

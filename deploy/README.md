@@ -78,6 +78,12 @@ bash scripts/restore-mysql.sh ~/blog_backups/blog_xxx.sql.gz
 - [x] 备份/恢复脚本实跑（本机实跑记录见 docs/进度.md 迭代日志 M12 行）
 - [x] 全库无明文 Key（§3 红线自查命令 + NFR-04 既有测试锁）
 
+**一键验收入口（M16 交付物③）**：`bash scripts/verify-deploy.sh` —— 把
+"构建起栈 → 等四服务 healthy（失败自动 dump 卡住容器日志）→ smoke 6 项 →
+portability 10 项 → down -v 收尾"收敛成一条命令；`SKIP_AI=1` 供离线机跳过
+真实厂商调用，`KEEP_UP=1` 验完不停栈（继续压测用）。答辩前自查与 CI 手动
+门禁共用这一个真相源，不再手抄三条命令。
+
 ## 6. 本机构建校验状态（M13 更正）
 
 **本机（Windows 11 + Docker Desktop 4.90.0 / WSL2）已实测跑通全栈**——早期版本本节

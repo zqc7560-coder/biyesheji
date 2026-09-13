@@ -30,3 +30,7 @@ __pycache__/
 
 # 运行期产物（上传目录/本地引导文件）
 uploads/
+
+# M16 压测产物：jtl/HTML 报告体积大且是环境快照，不入库（台账/报告文档只摘录关键指标）
+deploy/loadtest/output/
+deploy/loadtest/jmeter.log

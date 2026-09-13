@@ -106,6 +106,16 @@ services:
   # ---------- Nginx：静态托管 dist + /api 反代 + uploads 直出（§1.2 拓扑）----------
   nginx:
     image: nginx:1.25-alpine
+    # healthcheck（M16 压测收尾补）：smoke-deploy.sh 与交付验收的口径是
+    # "全部容器 healthy"，nginx 缺 healthcheck 时 Status 永远不含 healthy，
+    # 该口径对四服务根本不成立。探测打 /api/health 而非 /：一条断言同时核验
+    # nginx→blog-server 反代链路活着（首页 200 由冒烟脚本第 2 项独立负责）。
+    # busybox wget 即可用（alpine 镜像无 curl），--spider 只探活不落盘。
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider -T 5 http://127.0.0.1/api/health || exit 1"]
+      interval: 15s
+      retries: 5
+      start_period: 10s
     ports:
       - "80:80"
       # 演示机无 TLS 证书时：blog.conf 里 443 段整体注释，此端口映射保持注释——

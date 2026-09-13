@@ -220,6 +220,40 @@ class DeployAssetsM12Test {
     }
 
     @Test
+    @DisplayName("M16 压测缺陷回归锁：/api 反代必须走 upstream keepalive 连接池三件套")
+    void nginxUpstreamKeepaliveTrio() {
+        // 场景①「列表 200 并发×5min」经 Nginx 实测 65% 请求 502，error.log
+        // 成片 `connect() failed (99: Address not available)`——直写 proxy_pass
+        // 时每请求新建 TCP，千级 req/s 下临时端口耗尽。修复=upstream keepalive，
+        // 但少任一件配套都静默失效（池建不起来却"跑得通"，只有压测能发现），
+        // 所以三件套逐条机械断言，而不是只看"有没有 upstream 字样"。
+        String conf = read("deploy/nginx/conf.d/blog.conf");
+        String active = conf.lines()
+                .filter(l -> !l.strip().startsWith("#"))
+                .collect(Collectors.joining("\n"));
+
+        Matcher up = Pattern.compile("upstream\\s+(\\w+)\\s*\\{(.*?)}", Pattern.DOTALL)
+                .matcher(active);
+        assertTrue(up.find(), "缺少 upstream 块：/api 反代必须经连接池而非直连后端");
+        String upName = up.group(1);
+        String upBody = up.group(2);
+        assertTrue(Pattern.compile("keepalive\\s+\\d+").matcher(upBody).find(),
+                "upstream " + upName + " 缺 keepalive 指令（只有 upstream 没有池=零效果）");
+
+        // location /api 必须引用该 upstream，且带齐 HTTP/1.1 + 清空 Connection 头
+        Matcher loc = Pattern.compile("location\\s+/api\\s*\\{(.*?)}", Pattern.DOTALL)
+                .matcher(active);
+        assertTrue(loc.find(), "缺 location /api");
+        String api = loc.group(1);
+        assertTrue(api.contains("proxy_pass http://" + upName),
+                "location /api 的 proxy_pass 必须指向 upstream " + upName + "（改回直连=端口耗尽复发）");
+        assertTrue(Pattern.compile("proxy_http_version\\s+1\\.1").matcher(api).find(),
+                "缺 proxy_http_version 1.1：HTTP/1.0 语义下后端每响应即关连接，池存不住");
+        assertTrue(Pattern.compile("proxy_set_header\\s+Connection\\s+\"\"").matcher(api).find(),
+                "缺 Connection \"\" 清空：透传 close 会让 keepalive 静默失效");
+    }
+
+    @Test
     @DisplayName("超时链跨三文件单调：单次 HTTP 30s < Deferred 35s < Axios 40s < Nginx 60s")
     void timeoutChainMonotonic() {
         // 这条链的语义（《AI模块设计.md》§7.3）：任何一环被单独改动而破坏单调性，
@@ -413,12 +447,43 @@ class DeployAssetsM12Test {
         String bash = bashAvailable();
         Assumptions.assumeTrue(bash != null, "环境无可用 bash（裸 Windows CI 不常见），跳过语法校验");
         for (String rel : List.of("deploy/scripts/backup-mysql.sh",
-                "deploy/scripts/restore-mysql.sh", "deploy/scripts/smoke-deploy.sh")) {
+                "deploy/scripts/restore-mysql.sh", "deploy/scripts/smoke-deploy.sh",
+                "deploy/scripts/verify-deploy.sh")) {
             Process p = new ProcessBuilder(bash, "-n",
                     REPO_ROOT.resolve(rel).toString()).redirectErrorStream(true).start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             assertEquals(0, p.waitFor(), rel + " 语法错误: " + out);
         }
+    }
+
+    @Test
+    @DisplayName("M16 回归锁：四服务 healthcheck 齐备 + 冒烟脚本空输出不假绿")
+    void healthyVerdictCannotBeVacuous() {
+        // 两件同族缺陷都是 M16 压测收尾时发现的真问题：
+        // ① nginx 一直没有 healthcheck —— smoke/验收脚本口径"全部容器 healthy"
+        //    对三服务成立、对 nginx 永不成立，Status 里根本没有 healthy 字样，
+        //    等待类脚本会把它判成永久未就绪（或像旧版那样被空输出假绿掩盖）。
+        // ② `docker compose ps | grep -cv 'healthy'` 对【空输入】返回 0——
+        //    project 名敲错/栈没起来时脚本反而宣布"全部 healthy PASS"，无中生有。
+        //    修法是在线路径必须先判空再判 healthy（实测复现过：默认 project 空
+        //    输出下旧脚本第 1 项照样打 PASS）。
+        Map<String, Object> services =
+                (Map<String, Object>) loadYaml("deploy/docker-compose.yml").get("services");
+        for (String svc : Set.of("mysql", "redis", "blog-server", "nginx")) {
+            Map<String, Object> s = (Map<String, Object>) services.get(svc);
+            assertNotNull(s.get("healthcheck"),
+                    "服务 " + svc + " 缺 healthcheck——'全部容器 healthy' 验收口径对其不成立");
+        }
+        String smoke = read("deploy/scripts/smoke-deploy.sh");
+        assertTrue(smoke.contains("compose ps 为空"),
+                "smoke-deploy.sh 必须显式处理空 ps 输出（假绿回归）");
+        assertTrue(smoke.contains("[ -z \"${PS_OUT}\" ]") || smoke.contains("PS_OUT}\" = \"\"")
+                        || smoke.contains("[ -z \"${PS_OUT:-\""),
+                "健康判定段必须先做非空闸门再统计 healthy");
+        // verify-deploy.sh（M16 一键验收入口）同样不许在无容器时报"就绪"
+        String verify = read("deploy/scripts/verify-deploy.sh");
+        assertTrue(verify.contains("[ -n \"${PS_OUT}\" ]"),
+                "verify-deploy.sh 等待循环必须空输出不break（同族假绿防线）");
     }
 
     /**
