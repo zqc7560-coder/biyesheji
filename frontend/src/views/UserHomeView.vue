@@ -24,6 +24,10 @@ const store = useUserStore()
       <el-card shadow="hover" class="entry" @click="router.push('/user/articles/new')">
         <h3>✍ 写文章</h3><p>Markdown 编辑器（实时预览 / 自动草稿兜底）</p>
       </el-card>
+      <!-- M10：账号设置入口（UC-U-02 资料/头像 + UC-U-03 改密，M2 接口能力的表单页） -->
+      <el-card shadow="hover" class="entry" @click="router.push('/user/settings')">
+        <h3>⚙ 账号设置</h3><p>资料 / 头像 / 修改密码</p>
+      </el-card>
       <el-card shadow="hover" class="entry" @click="router.push('/')">
         <h3>🏠 回到站点</h3><p>公开列表与搜索</p>
       </el-card>

@@ -161,6 +161,14 @@
 
 **PATCH /api/articles/42/status** `{ "status":2 }` → `{ "code":0, "message":"已下线" }`；非法流转（如 2→1 需作者）统一 `1005`。
 
+**M10 回收站三接口（UC-U-09"管理员可在回收站彻底删除"的治理通道）**：
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | /api/articles/trash | 回收站分页 `?keyword&pageNum&pageSize`（查 deleted=1 的行；@TableLogic 会屏蔽一切内置查询，故走 Mapper 自定义 SQL 专用通道） | ADMIN |
+| POST | /api/articles/{id}/restore | 从回收站恢复：仅翻 deleted 位、status 保持删除前原值（恢复≠替作者发布）；幂等 | ADMIN |
+| DELETE | /api/articles/{id}/purge | 彻底删除（物理 DELETE 文章行 + 连带逻辑删其下评论）；对未删除文章执行返回 2001 拒（三重护栏见 Service 注释） | ADMIN |
+
 ## 5. 分类与标签模块
 
 | 方法 | 路径 | 说明 | 权限 |

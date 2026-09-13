@@ -51,3 +51,20 @@ export function forceOffline(id) {
 export function setTop(id, topFlag) {
   return request.patch(`/articles/${id}/top?topFlag=${topFlag}`)
 }
+
+// ---------- M10 回收站（UC-U-09 管理员通道，API 文档 §4 回收站三接口表） ----------
+
+/** GET /api/articles/trash：回收站分页 {keyword?, pageNum, pageSize}（仅 ADMIN） */
+export function listTrash(params) {
+  return request.get('/articles/trash', { params })
+}
+
+/** POST /api/articles/{id}/restore：恢复（status 保持删除前原值，幂等） */
+export function restoreArticle(id) {
+  return request.post(`/articles/${id}/restore`)
+}
+
+/** DELETE /api/articles/{id}/purge：彻底删除（物理删行；对未删除文章后端回 2001） */
+export function purgeArticle(id) {
+  return request.delete(`/articles/${id}/purge`)
+}

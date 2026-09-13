@@ -183,4 +183,38 @@ public class ArticleController {
         String message = articleService.forceOfflineByAdmin(id);
         return new Result<>(0, message, null, System.currentTimeMillis());
     }
+
+    // ==================== M10 回收站（UC-U-09"管理员可在回收站彻底删除"） ====================
+    // 三接口全部 hasRole('ADMIN')：回收站是全站治理视图，任何普通用户（含文章属主）
+    // 都不许读已删行——"自己的文章自己恢复"看似无害，但删除动作可能来自管理员
+    // 治理（下线违规文后删除），让用户自助复活等于架空治理链。恢复入口只放后台。
+
+    /** GET /api/articles/trash —— 回收站分页（仅 ADMIN；精确段优先于 /{id} 模板，勿与 detail 混淆） */
+    @Operation(summary = "回收站分页（管理员）")
+    @GetMapping("/trash")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public Result<PageResult<ArticleVO>> trash(@RequestParam(defaultValue = "1") long pageNum,
+                                               @RequestParam(defaultValue = "10") long pageSize,
+                                               @RequestParam(required = false) String keyword) {
+        return Result.ok(articleService.pageTrash(keyword,
+                Math.max(1, pageNum), Math.min(Math.max(1, pageSize), 100)));
+    }
+
+    /** POST /api/articles/{id}/restore —— 从回收站恢复（仅 ADMIN，幂等） */
+    @Operation(summary = "从回收站恢复文章（管理员）")
+    @PostMapping("/{id}/restore")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public Result<Void> restore(@PathVariable Long id) {
+        String message = articleService.restoreFromTrash(id);
+        return new Result<>(0, message, null, System.currentTimeMillis());
+    }
+
+    /** DELETE /api/articles/{id}/purge —— 彻底删除（仅 ADMIN，物理删行，三重护栏见 Service 注释） */
+    @Operation(summary = "彻底删除回收站文章（管理员）")
+    @DeleteMapping("/{id}/purge")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public Result<Void> purge(@PathVariable Long id) {
+        articleService.purgeFromTrash(id);
+        return Result.ok();
+    }
 }

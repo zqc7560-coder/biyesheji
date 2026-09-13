@@ -11,7 +11,10 @@ const router = useRouter()
 const NAVS = [
   { path: '/user', label: '总览' },
   { path: '/user/articles', label: '我的文章' },
-  { path: '/user/articles/new', label: '✍ 写文章' }
+  { path: '/user/comments', label: '我的评论' },
+  { path: '/user/articles/new', label: '✍ 写文章' },
+  // M10：账号设置入口（UC-U-02/03 表单页；此前用户中心导航里根本没有它的出口）
+  { path: '/user/settings', label: '账号设置' }
 ]
 </script>
 

@@ -1,20 +1,33 @@
 /**
- * 路由表（M0 骨架版）：公开站 / 登录 / 用户中心 / 管理后台 四棵路由树的占位。
+ * 路由表（M10 全站打通版）：公开站 / 登录 / 用户中心 / 管理后台 四棵路由树全量落地。
  *
- * 路由守卫规则（《项目计划.md》阶段二）：
+ * 路由守卫规则（《项目计划.md》阶段三）：
  * - meta.requiresAuth 的路由未登录跳 /login?redirect=原地址；
  * - meta.roles 含 ADMIN 的路由要求 isAdmin，否则回首页（越权三防的前端一层，
  *   真正的防线在后端 @PreAuthorize，前端守卫只是体验优化）。
+ *
+ * M10 结构变化：公开页收进 SiteLayout（全站统一顶栏+页脚，"打通"的字面含义——
+ * 任何页面都能一步回到首页/归档/登录态入口）。HomeView 的两栏主体不受影响，
+ * 它原本就自带站点名 H1（SiteLayout 顶栏接管站点门面后，页内 H1 保留——
+ * 首页的站点名是"门面横幅"语义，与顶栏"导航"语义不冲突）。
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
 const routes = [
   {
+    // 公开站布局壳：顶栏（登录态/导航）+ 页脚（备案号）由 SiteLayout 统一承载
     path: '/',
-    name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
-    meta: { title: '首页' }
+    component: () => import('@/views/SiteLayout.vue'),
+    children: [
+      { path: '', name: 'Home', component: () => import('@/views/HomeView.vue'), meta: { title: '首页' } },
+      // 文章详情：公开路由（游客可访问，可见性由后端矩阵裁决）；独立于 /user 壳避免布局约束
+      { path: 'articles/:id', name: 'ArticleDetail', component: () => import('@/views/ArticleDetailView.vue'), meta: { title: '文章详情' } },
+      // M10 归档页（UC-V-06 P2 用例，数据口 GET /api/articles/archive 自 M3 就在）
+      { path: 'archive', name: 'Archive', component: () => import('@/views/ArchiveView.vue'), meta: { title: '归档' } },
+      // M10 作者主页（详情页署名区点进来的公开页；数据口 GET /api/users/{id}/articles）
+      { path: 'u/:id', name: 'AuthorHome', component: () => import('@/views/AuthorHomeView.vue'), meta: { title: '作者主页' } }
+    ]
   },
   {
     path: '/login',
@@ -34,15 +47,10 @@ const routes = [
       { path: 'articles/new', name: 'ArticleNew', component: () => import('@/views/ArticleEditView.vue'), meta: { title: '写文章', requiresAuth: true } },
       { path: 'articles/:id/edit', name: 'ArticleEdit', component: () => import('@/views/ArticleEditView.vue'), meta: { title: '编辑文章', requiresAuth: true } },
       // M5：我的评论（UC-U-12 列表部分；含待审/被屏蔽态，对自己透明）
-      { path: 'comments', name: 'MyComments', component: () => import('@/views/MyCommentListView.vue'), meta: { title: '我的评论', requiresAuth: true } }
+      { path: 'comments', name: 'MyComments', component: () => import('@/views/MyCommentListView.vue'), meta: { title: '我的评论', requiresAuth: true } },
+      // M10：账号设置（UC-U-02 资料/头像 + UC-U-03 改密；M2 接口能力的表单页）
+      { path: 'settings', name: 'UserSettings', component: () => import('@/views/UserSettingsView.vue'), meta: { title: '账号设置', requiresAuth: true } }
     ]
-  },
-  {
-    // 文章详情：公开路由（游客可访问，可见性由后端矩阵裁决）；独立于 /user 壳避免布局约束
-    path: '/articles/:id',
-    name: 'ArticleDetail',
-    component: () => import('@/views/ArticleDetailView.vue'),
-    meta: { title: '文章详情' }
   },
   {
     // M2 后台布局框架：AdminLayout 侧边菜单按权限点过滤渲染（阶段三任务 6），
@@ -67,8 +75,17 @@ const routes = [
       // M7：成本统计页（答辩"AI 成本可视化"主屏 + 批量补全治理入口）
       { path: 'ai/stats', name: 'AdminAiStats', component: () => import('@/views/admin/AdminAiStatsView.vue'), meta: { title: 'AI 成本统计 - 管理后台' } },
       // M8：系统设置页（UC-A-09），menu.js 声明的 settings 入口落地（权限点 config:manage 在页面消费）
-      { path: 'settings', name: 'AdminSettings', component: () => import('@/views/admin/AdminSystemConfigView.vue'), meta: { title: '系统设置 - 管理后台' } }
+      { path: 'settings', name: 'AdminSettings', component: () => import('@/views/admin/AdminSystemConfigView.vue'), meta: { title: '系统设置 - 管理后台' } },
+      // M10：回收站（UC-U-09"管理员可在回收站彻底删除"）；挂 article:save 与文章管理同权限族
+      { path: 'trash', name: 'AdminTrash', component: () => import('@/views/admin/AdminTrashView.vue'), meta: { title: '回收站 - 管理后台' } }
     ]
+  },
+  {
+    // M10 通配兜底：手输错地址/链接腐烂不再白屏（SiteLayout 里渲染保住导航出口）
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { title: '页面不存在' }
   }
 ]
 

@@ -1,30 +1,32 @@
 <script setup>
 /**
- * Markdown 编辑器（M3）—— UC-U-04/07/08/09 的写作端，含：
- * · textarea 先行版编辑器（md-editor-v3 集成留 M10 全站打通；textarea+预览双栏
- *   已覆盖"撰写→实时预览→保存"闭环，且零新依赖——组件库换皮不该阻塞后端契约验证）
- * · 图片上传钩子（粘贴/按钮 → POST /api/users/avatar 通道同构的通用上传在 M8 落地，
- *   本期封面走已有上传口，正文插图按钮给出引导提示，不留死按钮）
+ * Markdown 编辑器（M10 换装版）—— UC-U-04/07/08/09 的写作端。
+ * · md-editor-v3 集成（M3/M4 台账顺延的换装项在此闭环）：自带工具栏/双栏预览/
+ *   快捷键；onUploadImg 钩子把"图片按钮"接到 M8 通用上传通道（三卡校验在后端）。
+ *   注意：编辑器预览用 md-editor 自带渲染器（写作辅助视图），详情页仍走 M3 的
+ *   renderMarkdown 三道闸管道（markdown-it html:false + 协议白名单 + DOMPurify）——
+ *   安全口径以详情页为准，编辑器预览不是渲染契约的一部分。
  * · localStorage 草稿兜底（阶段四任务 5）+ 2004 冲突决策弹框（D-8）
- * · AI 摘要按钮占位（M6 接入；置灰依据 /api/ai/status，先按不可用渲染）
+ * · AI 摘要/标签（M6/M7 落地）：置灰依据 /api/ai/status；标签走勾选确认弹窗
+ * · 封面图上传（M8）保留自研按钮（表单字段而非正文插入，不走编辑器钩子）
  */
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { MdEditor } from 'md-editor-v3'
+import 'md-editor-v3/lib/style.css'
 import {
   fetchArticle, createArticle, updateArticle, changeArticleStatus
 } from '@/api/article'
 import { fetchCategoryTree } from '@/api/category'
 import { fetchTags } from '@/api/tag'
-import { renderMarkdown } from '@/utils/markdown'
 import { decideSaveFailure, localDraftKey, resolveEditorSeed, VERSION_CONFLICT } from '@/utils/articleFlow'
 import { flattenCategoryTree, parseTagInput } from '@/utils/tagCategory'
 // M6：AI 摘要（课题重点）——按钮态探测 + 生成回填 + 降级处置
 // M7：AI 标签候选（勾选确认制）+ 批量入口不在编辑器（那是 ADMIN 治理页的动作）
 import { aiSummary, aiTags, aiStatus } from '@/api/ai'
-// M8：正文插图/封面图上传（台账 M3 顺延项在此闭环）
+// M8→M10：封面图上传（正文插图换装后走 MdEditor 的 onUploadImg 钩子，同函数复用）
 import { uploadImage } from '@/api/file'
-import { toMarkdownImage } from '@/utils/fileUpload'
 import { aiButtonState, summaryFailureAction, summaryBackfillHint,
          mergeAiTagCandidates, appendTagsToText } from '@/utils/ai'
 import { useUserStore } from '@/stores/user'
@@ -51,8 +53,8 @@ const wordCount = computed(() =>
   (form.contentMd || '').replace(/\s+/g, '').length)
 const saving = ref(false)
 
-/** 双栏预览：与详情页同一渲染管道（编辑所见=发布所见，杜绝"两套解析结果不一致"） */
-const previewHtml = computed(() => renderMarkdown(form.contentMd))
+// M10 换装说明：双栏预览改由 MdEditor 内置渲染器承担（写作辅助视图）；
+// 详情页的 renderMarkdown 三道闸管道（安全口径）不变——编辑器预览不是渲染契约。
 
 /** 标签：输入框以逗号/空格分隔，提交时切分为数组（后端 tags 是字符串数组契约）。
  *  M4：切分逻辑提升为 parseTagInput 纯函数（中英文逗号/大小写去重/上限截断），已单测。 */
@@ -146,54 +148,43 @@ function confirmAiTags() {
   ElMessage.success(`已追加 ${tagPicked.value.length} 个标签，保存文章后生效`)
 }
 
-// ---------- M8：正文插图 / 封面图上传（走 POST /api/files/upload 通用通道） ----------
-/** textarea 引用：插图要"插入到光标处"而不是无脑追加到文末 */
-const contentEl = ref(null)
-const imageUploading = ref(false)
+// ---------- M8→M10：封面图上传（自研按钮保留）/ 正文插图（换装后走编辑器钩子） ----------
 const coverUploading = ref(false)
 
-/**
- * 在光标位置插入文本并保持光标落在插入内容之后。
- * 用 execCommand 之外的纯字符串拼接 + setSelectionRange：insertText 命令在部分
- * 浏览器已废弃，字符串回写是唯一两环境（Chrome/Edge/Firefox）一致的方案。
- */
-function insertAtCursor(text) {
-  const el = contentEl.value
-  if (!el) {
-    form.contentMd += '\n' + text + '\n'
-    return
-  }
-  const start = el.selectionStart ?? form.contentMd.length
-  const end = el.selectionEnd ?? start
-  form.contentMd = form.contentMd.slice(0, start) + text + form.contentMd.slice(end)
-  // 下一帧再复位光标：v-model 触发的 DOM 更新会重置选区，等它落地
-  requestAnimationFrame(() => {
-    el.focus()
-    el.setSelectionRange(start + text.length, start + text.length)
-  })
-}
-
-/** 选文件 → 预检 → 上传 → 成功回写（插图进正文 / 封面进 form.cover）。ev 是 input change */
-async function handlePickImage(ev, mode) {
+/** 封面：选文件 → uploadImage 预检+上传 → 回写 form.cover（表单字段，不进正文） */
+async function handlePickCover(ev) {
   const file = ev.target.files?.[0]
   ev.target.value = ''   // 立即清空：连续选同一张图也能再次触发 change（浏览器按值去重）
   if (!file) return
-  const setter = mode === 'cover' ? coverUploading : imageUploading
-  setter.value = true
+  coverUploading.value = true
   try {
-    const r = await uploadImage(file, mode === 'cover' ? 'cover' : 'article')
-    if (mode === 'cover') {
-      form.cover = r.url
-      ElMessage.success('封面已设置，保存文章后生效')
-    } else {
-      insertAtCursor('\n' + toMarkdownImage(r.url, file.name) + '\n')
-      ElMessage.success('插图已插入正文（预览区可即时查看）')
-    }
+    const r = await uploadImage(file, 'cover')
+    form.cover = r.url
+    ElMessage.success('封面已设置，保存文章后生效')
   } catch (e) {
     ElMessage.error(e.message || '图片上传失败')
   } finally {
-    setter.value = false
+    coverUploading.value = false
   }
+}
+
+/**
+ * md-editor-v3 图片上传钩子：工具栏"图片"按钮/拖拽/粘贴传进来的 File[]，
+ * 逐个走 M8 通用通道（前端预检 + 后端三卡校验），回调解码后组件自行在光标处
+ * 插入 ![]()。单张失败不拖垮整批（toast 后继续），部分成功仍是成功——与
+ * batchEnrich"单败不拖全批"的仓库口径一致。
+ */
+async function onUploadImg(files, callback) {
+  const urls = []
+  for (const file of Array.from(files)) {
+    try {
+      const r = await uploadImage(file, 'article')
+      urls.push(r.url)
+    } catch (e) {
+      ElMessage.error(e.message || `《${file.name}》上传失败`)
+    }
+  }
+  callback(urls)
 }
 
 // ---------- M4：分类/标签候选数据（编辑器不再写死种子三分类） ----------
@@ -366,26 +357,19 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
       <div class="cover-row">
         <el-input v-model="form.cover" placeholder="封面图 URL（可留空；右侧按钮上传后自动回填）" clearable style="max-width:480px" />
         <label class="upload-btn">
-          <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden @change="(e) => handlePickImage(e, 'cover')" />
+          <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden @change="handlePickCover" />
           <el-button size="small" :loading="coverUploading">上传封面</el-button>
         </label>
         <img v-if="form.cover" :src="form.cover" class="cover-prev" alt="封面预览" />
       </div>
       <div class="md-toolbar">
         <span class="count">字数（去空白）：{{ wordCount }}</span>
-        <span class="hint">
-          <!-- M8：正文插图通道落地（光标处插入 ![]() 语法，预览区即时渲染） -->
-          <label class="upload-btn">
-            <input type="file" accept=".png,.jpg,.jpeg,.webp,.gif" hidden @change="(e) => handlePickImage(e, 'inline')" />
-            <el-button size="small" :loading="imageUploading">插入图片</el-button>
-          </label>
-          <span style="margin-left:8px">也可直接粘贴外链 ![]()</span>
-        </span>
+        <span class="hint">M10：正文插图改用编辑器工具栏图片按钮（点击/拖拽/粘贴均可，走同一上传通道）</span>
       </div>
-      <div class="md-split">
-        <textarea ref="contentEl" v-model="form.contentMd" class="md-input" placeholder="# 用 Markdown 写作…"></textarea>
-        <div class="md-preview" v-html="previewHtml"></div>
-      </div>
+      <!-- M10 换装：md-editor-v3（工具栏+双栏预览+快捷键，onUploadImg 接 M8 通道）；
+           editorId 固定值防同页多实例 id 冲突。preview 默认开（等分双栏） -->
+      <MdEditor v-model="form.contentMd" editor-id="blog-editor" :toolbars-exclude="['github','save']"
+                :onUploadImg="onUploadImg" placeholder="# 用 Markdown 写作…" style="height: 56vh; min-height: 380px" />
       <div class="actions">
         <el-button :loading="saving" @click="saveDraft">存草稿</el-button>
         <el-button type="primary" :loading="saving" @click="publish">发布</el-button>

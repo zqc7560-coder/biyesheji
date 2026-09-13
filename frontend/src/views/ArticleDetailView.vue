@@ -81,7 +81,8 @@ watch(() => route.params.id, load)
       <header class="detail-head">
         <h1>{{ article.title }}</h1>
         <div class="meta">
-          <span>{{ article.author?.nickname }}</span>
+          <!-- M10：署名链接到作者主页（/u/:id，公开页；打通"读一篇文章→认识这个作者"动线） -->
+          <router-link :to="`/u/${article.userId}`" class="author-link">{{ article.author?.nickname }}</router-link>
           <span v-if="article.publishedAt">· 发布于 {{ article.publishedAt.replace('T', ' ').slice(0, 16) }}</span>
           <span>· {{ article.viewCount ?? 0 }} 次浏览</span>
           <el-tag v-if="article.status !== 1" type="warning" size="small">
@@ -123,6 +124,9 @@ watch(() => route.params.id, load)
 <style scoped>
 .detail-page { max-width: 960px; margin: 32px auto; padding: 0 16px; }
 .meta { color: #909399; font-size: 14px; margin: 8px 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* M10：作者昵称链（默认 a 样式带下划线蓝，视觉上与 meta 灰字打架，收敛为"继承色+hover 变蓝"） */
+.author-link { color: inherit; text-decoration: none; }
+.author-link:hover { color: #409eff; text-decoration: underline; }
 .summary { color: #606266; background: #f5f7fa; padding: 10px 14px; border-left: 3px solid #409eff; }
 .tags { display: flex; gap: 6px; margin: 10px 0; }
 .owner-bar { margin: 12px 0; display: flex; gap: 8px; }

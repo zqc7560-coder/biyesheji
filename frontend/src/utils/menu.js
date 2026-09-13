@@ -17,6 +17,7 @@
 export const ADMIN_MENUS = [
   { key: 'dashboard', label: '仪表盘', path: '', perm: null },                       // /admin
   { key: 'articles', label: '文章管理', path: 'articles', perm: 'article:save' },     // M3 落地页面
+  { key: 'trash', label: '回收站', path: 'trash', perm: 'article:save' },             // M10（UC-U-09 彻底删除通道；与文章管理同权限族，后端三口 hasRole('ADMIN')）
   { key: 'categories', label: '分类管理', path: 'categories', perm: 'category:manage' }, // M4
   { key: 'tags', label: '标签管理', path: 'tags', perm: 'tag:manage' },               // M4
   { key: 'comments', label: '评论审核', path: 'comments', perm: 'comment:audit' },    // M5

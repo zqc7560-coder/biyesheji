@@ -9,17 +9,17 @@ import { ADMIN_MENUS, filterMenus } from '../menu.js'
 const labels = (perms) => filterMenus(perms).map((m) => m.label)
 
 describe('filterMenus: 侧边菜单按权限点过滤', () => {
-  it('管理员权限点全集：9 个菜单全部渲染且保持声明顺序', () => {
+  it('管理员权限点全集：10 个菜单全部渲染且保持声明顺序（M10 回收站入列）', () => {
     const adminPerms = ['article:save', 'article:delete', 'ai:use', 'ai:config', 'ai:log',
       'user:manage', 'comment:audit', 'category:manage', 'tag:manage', 'config:manage']
     expect(labels(adminPerms)).toEqual(ADMIN_MENUS.map((m) => m.label))
   })
 
-  it('普通用户权限点：只剩仪表盘与文章管理（其余治理入口全部隐藏）', () => {
-    // 文章管理挂 article:save（种子无 article:manage 治理码，10 权限点清单不许擅改）。
+  it('普通用户权限点：只剩仪表盘、文章管理与回收站（其余治理入口全部隐藏）', () => {
+    // 文章管理/回收站都挂 article:save（种子无 article:manage 治理码，10 权限点清单不许擅改）。
     // 误入风险为零：/admin 整棵路由树有 ROLE_ADMIN 守卫，普通用户根本进不来，
     // 这条过滤只在"未来中间角色"场景生效；后端接口才是真防线。
-    expect(labels(['article:save', 'article:delete', 'ai:use'])).toEqual(['仪表盘', '文章管理'])
+    expect(labels(['article:save', 'article:delete', 'ai:use'])).toEqual(['仪表盘', '文章管理', '回收站'])
   })
 
   it('部分权限：只露出对应入口（中间角色演进场景，如只给 comment:audit）', () => {

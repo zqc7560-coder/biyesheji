@@ -65,6 +65,13 @@ public class ArticleService {
     private final TagMapper tagMapper;
     private final SysUserMapper userMapper;
     /**
+     * M10 回收站"彻底删除"用：物理删文章行时连带逻辑删其下评论。
+     * 注入 Mapper 而非 CommentService——CommentService 反过来依赖文章读路径
+     * （评论区闸门要查文章），Service 互调会成环；跨模块写走"自己的 Service +
+     * 对方 Mapper"是本仓库既有约定（AiBatchService 写 article 表同理）。
+     */
+    private final com.blog.module.comment.mapper.CommentMapper commentMapper;
+    /**
      * M9 热点缓存（《系统设计.md》§3.2 时序图的 Redis 两步）。
      * ArticleCacheService 是叶子组件（只依赖 Redis/ObjectMapper，不回指任何 Service），
      * 构造注入无环；若日后缓存需要回读业务数据，届时按 M7 教训改用 ObjectProvider 断环。
@@ -515,6 +522,90 @@ public class ArticleService {
         // M9：置顶改变的是列表次序不是详情内容，但失效粒度统一走"全删"
         // （列表键本来就无法精准定位到"受影响的那几个页"，见 ArticleCacheService 注释）
         evictCache(id);
+    }
+
+    // ==================================================================
+    // 回收站（M10 打通 UC-U-09"管理员可在回收站彻底删除"）
+    // ==================================================================
+
+    /**
+     * 回收站分页（GET /api/articles/trash，仅 ADMIN）。
+     *
+     * <p>为什么必须走 Mapper 自定义 SQL 而不是复用 pageArticles：{@code @TableLogic}
+     * 让 MP 给一切内置查询追加 deleted=0，"看已删行"这个需求在内置 API 里是表达
+     * 空集——回收站是逻辑删除机制唯一读不到的视图，只能自带通道（见 ArticleMapper 类注释）。
+     *
+     * <p>VO 装配复用 {@link #toBriefVOList}：它按 id 批量补 author/category/tags，
+     * 回收站里的文章标签已在删除时清算（见 {@link #delete} 注释），所以 tags 通常为空
+     * ——这不是缺陷而是账实一致（事实表确实没有关联了）；恢复后作者需重新挂标签。
+     */
+    @Transactional(readOnly = true)
+    public PageResult<ArticleVO> pageTrash(String keyword, long pageNum, long pageSize) {
+        com.baomidou.mybatisplus.core.metadata.IPage<Article> page = articleMapper.selectTrashPage(
+                new Page<>(pageNum, pageSize),
+                keyword == null || keyword.isBlank() ? null : keyword.trim());
+        return new PageResult<>(page.getTotal(), page.getPages(), page.getCurrent(), page.getSize(),
+                toBriefVOList(page.getRecords()));
+    }
+
+    /**
+     * 从回收站恢复文章（ADMIN）。
+     *
+     * <p>只翻 deleted 位，<b>不改 status</b>：文章删除前是草稿就回到草稿、是已发布就回到
+     * 已发布。"恢复"的语义是把时间拨回删除那一刻，不是替作者做一次发布决定——
+     * 若顺手把下线文章发出去，就是治理动作越权改成内容动作。
+     *
+     * <p>计数结算是 {@link #delete} 的镜像：删除时对"已发布"文章做过分类 -1，
+     * 恢复就必须对同一分类 +1，否则分类页计数长期少账（重复点恢复由幂等护栏挡住，
+     * 影响 0 行直接返回，不会双计）。标签计数不结算——关联行在删除时已物理清算，
+     * 事实与冗余列此刻依然一致，恢复后由作者重挂标签自然补回。
+     */
+    @Transactional
+    public String restoreFromTrash(Long id) {
+        Article trashed = articleMapper.selectTrashedById(id);
+        if (trashed == null) {
+            throw new BizException(BizCode.ARTICLE_NOT_FOUND, "回收站中没有这篇文章", 404);
+        }
+        if (articleMapper.reviveById(id) == 0) {
+            // 并发下另一个管理员先恢复了：revive 的 AND deleted=1 让它更新 0 行
+            return "文章已在库中";
+        }
+        adjustCategoryCount(trashed.getCategoryId(), +1, trashed.getStatus());
+        evictCache(id);
+        log.info("管理员恢复文章 id={} status={}", id, trashed.getStatus());
+        return "已恢复";
+    }
+
+    /**
+     * 彻底删除（ADMIN，UC-U-09 后半句）：物理 DELETE 文章行 + 逻辑删其下评论。
+     *
+     * <p>这是全系统<b>唯一</b>一处物理删业务行的入口，因此三重护栏叠满：
+     * <ol>
+     *   <li>权限：Controller 挂 {@code hasRole('ADMIN')}，前端入口只在后台回收站页出现；</li>
+     *   <li>前置态：Service 先查 {@link #articleMapper}.selectTrashedById——不在回收站
+     *       （含未删除）的文章一律 2001 拒，杜绝"手滑删掉活文章"；</li>
+     *   <li>SQL：{@code DELETE ... WHERE id=? AND deleted=1}，即使前两层被绕过，
+     *       物理删除也只可能命中已删行。</li>
+     * </ol>
+     *
+     * <p>评论为什么只是逻辑删而不物理删：文章行没了，这些评论永远不会再被任何查询
+     * 命中（评论区按 articleId 进、后台审核列表可按文章过滤），删不删都不影响正确性；
+     * 保留 deleted=1 的行是留一份"曾经存在互动"的审计痕迹，也避免与 comment_count
+     * 结算逻辑纠缠（该列随文章行一起消失，无需回冲）。
+     *
+     * <p>article_tag 在 {@link #delete} 时已清空，这里不再重复清理（幂等重删无害但纯属噪音）。
+     */
+    @Transactional
+    public void purgeFromTrash(Long id) {
+        Article trashed = articleMapper.selectTrashedById(id);
+        if (trashed == null) {
+            throw new BizException(BizCode.ARTICLE_NOT_FOUND, "回收站中没有这篇文章", 404);
+        }
+        commentMapper.delete(new LambdaQueryWrapper<com.blog.module.comment.entity.Comment>()
+                .eq(com.blog.module.comment.entity.Comment::getArticleId, id));   // @TableLogic 生效：实为 UPDATE deleted=1
+        articleMapper.purgeById(id);
+        evictCache(id);
+        log.info("管理员彻底删除文章 id={}（含其下评论逻辑删除）", id);
     }
 
     // ==================================================================
