@@ -19,6 +19,8 @@ build/
 *.log
 logs/
 tmp/
+__pycache__/
+*.pyc
 
 # 环境与密钥（切勿提交）
 .env

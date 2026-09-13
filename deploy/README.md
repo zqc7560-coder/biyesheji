@@ -114,3 +114,69 @@ bash scripts/restore-mysql.sh ~/blog_backups/blog_xxx.sql.gz
    挂 /root/.m2 整目录会把镜像层里的 settings.xml 遮蔽掉，提速静默失效），
    并叠加阿里云镜像源 settings 解决冷缓存；**二次起增量构建 ~20s**；真机对比
    数据记在 `docs/容器化部署验证报告.md` §7。
+
+## 8. 从零部署验证步骤（M14 可移植性演练，命令与输出均为 2026-09-14 实录）
+
+> 课题要求"换一台装了 Docker 的电脑就能跑"。本节是一次**完整演练的固化**：
+> 在 `D:\毕业设计` 仓库之外，用 `git archive HEAD` 导出纯净检出（模拟新机器
+> 只 clone 得到仓库内容——`target/`、`node_modules/`、`dist/`、`.env` 全不存在），
+> 从 `.env.example` 现场生成全新随机口令，全新 project name + 全新卷一次拉起。
+> 机器可执行版：`deploy/scripts/portability-check.py`（10 项断言，FAIL 即退出码 1）。
+
+```bash
+# ① 取仓库（新机器第一步就是 clone；演练以 git archive 导出等价物模拟）
+git clone <repo> && cd <repo>/deploy
+
+# ② 造 .env：cp 模板 → 全部占位值换成新生成的强随机值（AI Key 可选填）
+cp .env.example .env && chmod 600 .env
+#   MYSQL_ROOT_PASSWORD=$(openssl rand -base64 18)
+#   REDIS_PASS=$(openssl rand -base64 12)
+#   BLOG_JWT_SECRET=$(openssl rand -hex 32)
+#   BLOG_AI_MASTER_KEY=$(openssl rand -hex 32)
+
+# ③ 前端产物（Nginx 挂载 ../frontend/dist，新机器没有现成 dist）
+cd ../frontend && npm ci && npm run build && cd ../deploy   # 实测 added 235 packages/13s + build 15s
+
+# ④ 一次拉起全栈（prod override=演示机也建议的护栏形态）
+docker compose -p <项目名> -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#   全新卷首启实测：42.0s 到"四服务全部 healthy"（镜像层已在本机缓存时；
+#   真正的新机器还要先拉 5 个基础镜像，见 §7.4 代理注意事项）
+
+# ⑤ 可移植性验收（自动初始化/开箱即用/双厂商/卷直出/护栏 共 10 项）
+python scripts/portability-check.py        # 期望末行: == 可移植性验收: 10 通过 / 0 失败 ==
+
+# ⑥ 收尾纪律（尤其 Windows 开发机：WSL 虚拟机不放内存）
+docker compose -p <项目名> down -v         # -v 连卷删净=回到零状态，可反复演练
+```
+
+**实测结论（两轮，均全新卷）**：
+
+| 轮次 | 场景 | 结果 |
+|---|---|---|
+| 第一轮 | `up -d --build`（全新 project + 全新卷） | **42s** 四服务全 healthy；`down -v` 后再起第二轮 |
+| 第二轮 | `up -d`（镜像已缓存，卷全新） | **27.7s** 全 healthy；验收脚本 10/10 PASS |
+
+第二轮 10 项断言实录：首页 Vue 入口 200 → health mysql+redis 双 UP → 匿名文章
+列表 code 0（02_data 种子自动灌入）→ admin 登录签发 Token（权限矩阵就位）→
+`/api/ai/status configured=true` → ai_config 两内置行 `keyImported=true`、默认
+DeepSeek、响应零明文 Key → 真实摘要端到端（tokens prompt 207/completion 57）→
+**双厂商连通全 ok**（`{"deepseek": true, "dashscope": true}`，同一 LlmClient 零分叉）→
+/uploads 直出 404 非 5xx → `docker inspect` 实证 768MB 内存限额 + unless-stopped。
+
+**演练抓出的事实与已知现象**：
+
+1. 自动初始化链路确认：空卷首启自动建 **15 表**，种子行数
+   user=1（admin 引导）/role=2/permission=10/config=9/ai_config=2，无任何手工 SQL。
+2. 密钥红线在部署形态复验：`ai_config.api_key_cipher` 落库长度 84/192、
+   `LIKE '%sk-%'` 扫描 0 命中；blog-server 容器日志明文 Key 形态 0 命中。
+3. **两轮演练各有首轮真实调用 FAIL（4002/4102，含 deepseek 与 dashscope 双方），
+   复跑全部通过**——与 `docs/容器化部署验证报告.md` §3.2 结论一致：容器新起后
+   头几分钟 WSL2/Docker DNS 偶发抖动。判定法（本轮复用该报告三步排查）：容器内 `curl` 直连
+   两家厂商 `/chat/completions`，返回 200 即排除代码因素、按抖动重试。
+   **不要为此改 AI 模块代码**；离线目标机用 `python scripts/portability-check.py --skip-ai`。
+4. 分页信封行集字段是 `list`（PageResult 防腐层）不是 `records`；AI 生成接口
+   请求体字段是 `contentMd` 不是 `content`——M14 演练编写脚本时两处均真实踩中
+   （分别报 AttributeError 与 400 校验失败）。验收脚本按契约写死，
+   `DeployPortabilityM14Test` 有回归锁；后端若改字段名，测试与脚本必须同步。
+5. 明文 Key 扫描别拿 `"sk-" in text` 一刀切：ai_config 响应里有设计允许的掩码
+   形态 `sk-****183a`，正确红线形态是 `sk-` + 20 位随机串（掩码需负向豁免）。

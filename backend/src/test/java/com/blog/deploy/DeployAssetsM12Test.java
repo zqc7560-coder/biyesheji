@@ -183,7 +183,10 @@ class DeployAssetsM12Test {
                 if (name.equals(".env")) {
                     continue;
                 }
-                String content = Files.readString(f, StandardCharsets.UTF_8);
+                // M14 加固：按 ISO-8859-1 解码——字节保真、任何文件（含二进制 .pyc）都不会
+                // 抛 MalformedInputException 炸扫描；sk- 形态是纯 ASCII，字节保真解码下照样命中，
+                // 检出能力零损失（用 UTF_8 读二进制曾把本测试炸红，见 verify 日志）。
+                String content = new String(Files.readAllBytes(f), StandardCharsets.ISO_8859_1);
                 assertFalse(realKey.matcher(content).find(),
                         "部署资产含真实 Key 形态: " + REPO_ROOT.relativize(f));
             }
