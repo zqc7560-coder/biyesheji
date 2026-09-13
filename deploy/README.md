@@ -54,7 +54,8 @@ bash scripts/smoke-deploy.sh           # 全 PASS 即交付可用（验收清单
 1. **uploads 卷属主**：镜像内以 bloguser(uid 10001) 运行，命名卷首挂时继承镜像目录属主，
    正常；若手工把宿主机目录 bind 进 uploads 会写权限炸——用命名卷（compose 默认即命名卷）。
 2. **`BLOG_AI_MASTER_KEY` ≠ `AI_KEY_ENC_SECRET`**：application.yml（dev）读后者、
-   application-prod/docker 走前者——同一把值两处环境变量名都要给（或部署机直接 export 两个名字）。
+   docker profile（M13 起经 `spring.profiles.group` 真实存在并级联 prod）读前者——
+   同一把值两处环境变量名都要给（或部署机直接 export 两个名字）。
 3. **ngram 参数只在容器首启生效**：`--ngram_token_size=2` 是启动 command 参数，
    已建卷的 MySQL 改它无效；全文搜索异常时 `docker compose rm -s -v mysql` 重灌（开发期）。
 4. **升级后端**：`docker compose build blog-server && docker compose up -d blog-server`（<30s）。
@@ -77,13 +78,39 @@ bash scripts/restore-mysql.sh ~/blog_backups/blog_xxx.sql.gz
 - [x] 备份/恢复脚本实跑（本机实跑记录见 docs/进度.md 迭代日志 M12 行）
 - [x] 全库无明文 Key（§3 红线自查命令 + NFR-04 既有测试锁）
 
-## 6. 本机构建校验状态（M12 交付时点）
+## 6. 本机构建校验状态（M13 更正）
 
-开发机当前**未安装 Docker Engine / WSL 发行版**（仅残留空壳目录），因此：
-- compose 两份 YAML 与 `.env.example` 已通过 PyYAML 严格解析校验；
-- blog.conf 已通过本机 nginx -t（E:/develop/nginx）语法校验（含 map/alias/gzip 指令）；
-- 三个 shell 脚本通过 `bash -n` 语法校验 + 纯逻辑函数本机实跑；
-- backup 的 mysqldump 真实导出 → gzip → 校验 → 恢复管道输入，用本机
-  MySQL 9.1 + 影子库 blog_deploy_smoke 实跑验证（验后删库）；
-- **镜像构建与 `docker compose up` 全链路需在装有 Docker 的目标机（答辩云主机）执行**，
-  预期一次通过；若失败按 §4 顺序排查，勿改 compose 结构。
+**本机（Windows 11 + Docker Desktop 4.90.0 / WSL2）已实测跑通全栈**——早期版本本节
+写的是"未装 Docker、需目标机验证"，该声明已作废（真机记录见
+`docs/容器化部署验证报告.md`，2026-09-14）。已验证项：
+
+- `docker compose up -d --build` 四服务全部 healthy，经 Nginx 端到端 6 项接口全通；
+- AI 摘要/标签真实调用（DeepSeek、Qwen 双厂商），内置模型 Key 密文落库核对；
+- compose/Dockerfile/脚本的静态契约由 `DeployAssetsM12Test` 在 CI 持续把关
+  （M13 起追加 healthcheck 变量注入、profile 悬空、cache mount 三条回归锁）。
+
+## 7. 国内环境部署注意事项（Windows 开发机 / 国内云主机通用）
+
+> 来自 2026-09-14 真机实测（docs/容器化部署验证报告.md §2），每一条都是踩出来的。
+
+1. **Docker Desktop 版本代差**：国内镜像站流传的 4.1.1（2021）与新版 WSL
+   不兼容——客户端能起、守护进程永远起不来。用官网 4.9x 安装包；
+   `desktop.docker.com` 直连被重置时走代理 `curl -x http://127.0.0.1:7890 -L -o ...`。
+2. **数据落非系统盘**：Docker Desktop 固定读 `%LOCALAPPDATA%\Docker\wsl`，
+   把它做成目录联结指向 D/E 盘（`mklink /J`，写进 .ps1 执行——脚本必须纯 ASCII）。
+   联结在升级/重装 Docker Desktop 后依然有效。
+3. **内存护栏配在 `.wslconfig` 不在 Docker 设置**：改 Docker 设置里的 MemoryMiB
+   对 WSL2 后端无效（实测 `docker info` 不变）。正确做法 `%USERPROFILE%\.wslconfig`
+   写 `[wsl2] memory=8GB`，改完 `wsl --shutdown` 并重启 Docker Desktop 才生效。
+   不设限曾把 31GB 宿主机吃到只剩 0.8GB。紧急止血同样 `wsl --shutdown`。
+4. **拉镜像走引擎代理**：Docker Desktop 引擎配置加 `proxies` 指向本地代理
+   （`http://127.0.0.1:7890`），`docker info` 出现 `HTTP Proxy: http.docker.internal:3128`
+   即生效。偶发 `auth.docker.io` 超时：先单独 `docker pull` 基础镜像拉全，
+   再 build 命中缓存。Docker Hub 直连超时是**环境现象不是项目 bug**，不要试图"修"它。
+5. **收尾纪律**：演示/验证完 `docker compose down` 或 `wsl --shutdown`——
+   WSL 虚拟机会长期占 1~2GB 内存。
+6. **构建提速（M13）**：`backend/Dockerfile` 的 mvn 阶段挂 BuildKit
+   `--mount=type=cache,target=/root/.m2/repository`（**只挂 repository 子目录**——
+   挂 /root/.m2 整目录会把镜像层里的 settings.xml 遮蔽掉，提速静默失效），
+   并叠加阿里云镜像源 settings 解决冷缓存；**二次起增量构建 ~20s**；真机对比
+   数据记在 `docs/容器化部署验证报告.md` §7。

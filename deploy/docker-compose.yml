@@ -65,7 +65,9 @@ services:
       interval: 10s
       retries: 6
 
-  # ---------- 后端：多阶段 Dockerfile（backend/Dockerfile），prod profile ----------
+  # ---------- 后端：多阶段 Dockerfile（backend/Dockerfile）。profile=docker，
+  #          经 application.yml 的 spring.profiles.group 级联继承 prod 全部覆盖
+  #          （M13：此前 docker 是悬空引用，prod 覆盖项在容器里不生效）----------
   blog-server:
     build:
       context: ../backend

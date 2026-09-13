@@ -247,6 +247,121 @@ class DeployAssetsM12Test {
     }
 
     // =================================================================
+    // 3.5 M13 新增：真机实测暴露问题的回归锁（容器化部署验证报告 §3.1/§3.3）
+    // =================================================================
+
+    /**
+     * M12 真机才暴露的必现部署 bug 的回归锁：redis 服务 healthcheck 引用
+     * $${REDIS_PASS}（compose 把 $$ 转义为容器内 shell 展开），但该服务当时
+     * 没有 environment 块——变量从未进容器，redis-cli 空密码认证 WRONGPASS，
+     * 容器永远 unhealthy，blog-server 被 depends_on 健康门禁挡死。
+     * 纯文件层面完全可判：凡 healthcheck 命令文本里出现 $${VAR} 引用，
+     * 该服务必须声明 environment 且包含同名键。CI 上跑，零容器依赖。
+     */
+    @Test
+    @DisplayName("healthcheck 引用的容器侧变量必须由该服务 environment 注入（M13 回归锁）")
+    @SuppressWarnings("unchecked")
+    void healthcheckVarsAreInjected() {
+        Map<String, Object> services =
+                (Map<String, Object>) loadYaml("deploy/docker-compose.yml").get("services");
+        for (Map.Entry<String, Object> e : services.entrySet()) {
+            String svcName = e.getKey();
+            Map<String, Object> svc = (Map<String, Object>) e.getValue();
+            Map<String, Object> hc = (Map<String, Object>) svc.get("healthcheck");
+            if (hc == null) {
+                continue;
+            }
+            // test 可能是列表（CMD/CMD-SHELL 数组形态）也可能是字符串，统一拼成文本
+            String hcText = String.join(" ", flatten(hc.get("test")));
+            Set<String> envKeys = svc.get("environment") instanceof Map<?, ?> m
+                    ? m.keySet().stream().map(String::valueOf).collect(Collectors.toSet())
+                    : Set.of();
+            // YAML 不做 $$ 插值，解析后字面量仍是 $${VAR}——直接按原形态抽取
+            Matcher varRef = Pattern.compile("\\$\\$\\{([A-Z][A-Z0-9_]+)\\}").matcher(hcText);
+            while (varRef.find()) {
+                String var = varRef.group(1);
+                assertTrue(envKeys.contains(var),
+                        "服务 " + svcName + " 的 healthcheck 引用 $${" + var
+                                + "} 但该服务 environment 未注入同名键——容器内恒为空值，"
+                                + "健康检查必误报（M12 redis 事故原样复现）");
+            }
+        }
+    }
+
+    /**
+     * 消除 §3.3 悬空引用的回归锁：compose 注入 SPRING_PROFILES_ACTIVE 后，
+     * 每个 profile 值必须有对应的 application-&lt;profile&gt;.yml（或本就是 default），
+     * 否则激活的是空气——prod 覆盖项在容器里全线静默失效，这是"能跑但口径不对"
+     * 的隐性漂移，只有机械比对能拦住。同时钉住 docker→[prod] 的 group 结组还在
+     * （application.yml 主文档，profile 专属文档里写 group 会启动即抛）。
+     */
+    @Test
+    @DisplayName("compose 引用的 Spring profile 有真实配置文件且经 group 继承 prod（M13）")
+    @SuppressWarnings("unchecked")
+    void composeProfileNotDangling() {
+        Map<String, Object> services =
+                (Map<String, Object>) loadYaml("deploy/docker-compose.yml").get("services");
+        Map<String, Object> serverEnv =
+                (Map<String, Object>) ((Map<String, Object>) services.get("blog-server")).get("environment");
+        String profile = String.valueOf(serverEnv.get("SPRING_PROFILES_ACTIVE"));
+        assertFalse(profile.isBlank(), "SPRING_PROFILES_ACTIVE 不得为空（缺省走 dev 直连本机中间件，容器里必炸）");
+        for (String p : profile.split(",")) {
+            String one = p.trim();
+            assertTrue(Files.exists(REPO_ROOT.resolve(
+                            "backend/src/main/resources/application-" + one + ".yml")),
+                    "profile '" + one + "' 悬空：无 application-" + one + ".yml——Spring 激活不存在"
+                            + "的 profile 不报错，覆盖项静默全丢（M12 实测 docker profile 即此坑）");
+        }
+        // group 结组断言：docker 必须映射到 [prod]，容器才继承生产覆盖项
+        String mainYml = read("backend/src/main/resources/application.yml");
+        assertTrue(Pattern.compile("docker:\\s*\\[\\s*prod\\s*]").matcher(mainYml).find(),
+                "application.yml 缺 spring.profiles.group docker:[prod] 结组——"
+                        + "补的文件若与 group 同时被删，容器会退回'只有 application.yml'的裸默认口径");
+    }
+
+    /**
+     * M13 构建提速的回归锁（真机三轮实测后的最终口径，数据见验证报告 §7）：
+     * a) 首行**不得**钉 #syntax=docker/dockerfile ——内建前端原生支持 cache mount，
+     *    syntax 行反而让每次 build 前多拉一次 docker.io 前端镜像，国内无代理必炸
+     *    （M13 首跑真实踩中）；
+     * b) 每个 mvn RUN 必须挂 /root/.m2/repository 缓存卷——只准挂 repository 子目录：
+     *    BuildKit 挂载会整体遮蔽目标目录，挂 /root/.m2 会把镜像层里的 settings.xml
+     *    （阿里云镜像源配置）一起藏掉，提速措施静默失效；
+     * c) 不得再有 dependency:go-offline——cache mount 承担跨构建复用后它是纯冗余
+     *    （暖缓存实测仍耗 397.8s），单次 package 才是正解；
+     * d) settings-aliyun.xml 必须被 COPY 到挂载点之外。
+     */
+    @Test
+    @DisplayName("Dockerfile 提速三件套：cache mount 挂载点/无 go-offline/镜像源注入（M13）")
+    void dockerfileUsesCacheMount() {
+        String dockerfile = read("backend/Dockerfile");
+        String firstLine = dockerfile.lines().findFirst().orElse("");
+        assertFalse(firstLine.startsWith("#syntax=") || firstLine.startsWith("# syntax="),
+                "首行被钉了 #syntax=docker/dockerfile ——国内网络下每次 build 先拉 docker.io "
+                        + "前端镜像必超时（M13 实测）；Engine 29.x 内建前端原生支持 cache mount，删掉");
+        List<String> mvnRuns = dockerfile.lines()
+                .filter(l -> l.strip().startsWith("RUN") && l.contains("mvn "))
+                .collect(Collectors.toList());
+        assertFalse(mvnRuns.isEmpty(), "找不到 mvn RUN 行——Dockerfile 结构大改需同步本测试");
+        for (String run : mvnRuns) {
+            assertTrue(run.contains("--mount=type=cache,target=/root/.m2/repository"),
+                    "mvn RUN 未挂 /root/.m2/repository 缓存卷（当前: " + run + "）");
+            assertFalse(run.contains("target=/root/.m2 "),
+                    "cache mount 挂到了 /root/.m2 整目录——会把 settings.xml 遮蔽掉（挂载语义），必须只挂 repository 子目录");
+        }
+        // 只看可执行指令行：注释里"删 go-offline"的说明文字含该词，整文件 contains 会误判
+        boolean hasGoOfflineStep = dockerfile.lines()
+                .map(String::strip)
+                .anyMatch(l -> !l.startsWith("#") && l.contains("dependency:go-offline"));
+        assertFalse(hasGoOfflineStep,
+                "go-offline 回来了？暖缓存实测它仍耗 397.8s（纯冗余），见 Dockerfile 注释提速③");
+        assertTrue(dockerfile.contains("COPY docker/settings-aliyun.xml /root/.m2/settings.xml"),
+                "阿里云镜像源 settings 注入丢失——容器构建会退回直连 Central 的 10~20 分钟老路");
+        assertTrue(Files.exists(REPO_ROOT.resolve("backend/docker/settings-aliyun.xml")),
+                "docker/settings-aliyun.xml 文件不存在（被移动？同步本测试与 Dockerfile）");
+    }
+
+    // =================================================================
     // 4. Dockerfile / .dockerignore 契约
     // =================================================================
 

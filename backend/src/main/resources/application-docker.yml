@@ -1,0 +1,27 @@
+# =====================================================================
+# docker profile：容器部署（compose 内 SPRING_PROFILES_ACTIVE=docker）的
+# 运行时配置差异项。
+#
+# 背景（M13 收口的悬空引用，见 docs/容器化部署验证报告.md §3.3）：
+#   compose 自 M12 起就注入 SPRING_PROFILES_ACTIVE=docker，但仓库里此前
+#   只有 application-prod.yml——Spring 激活了一个不存在的 profile，
+#   prod 的全部覆盖项（生产数据源、knife4j 关闭、日志降噪落盘）在容器里
+#   一条都没生效，系统能跑纯属 application.yml 环境变量占位"碰巧"兜住。
+#
+# 与 prod 的关系：group 映射（docker → [prod]）声明在 application.yml
+#   主文档——Spring Boot 2.4+ 规定 spring.profiles.group 不允许写在
+#   profile 专属文档里（会抛 ProfileValidationException），所以本文件
+#   只承载 docker 相对 prod 的**差异项**，公共覆盖由 group 级联继承。
+#   加载顺序 prod 先、docker 后：本文件同名键可覆盖 prod，语义是
+#   "组内基线 + 容器微调"。
+# =====================================================================
+
+# 当前容器侧唯一有意的微调：应用日志级别。
+# 裸机 prod 面向长跑服务，root=warn/com.blog=info；compose 栈在答辩演示
+# 现场排障依赖挂载卷 ./logs/blog-server.log 里的启动进度与业务 info 轨迹，
+# 容器里把 com.blog 显式钉在 info（值与 prod 相同，但口径写死在容器文件里，
+# 将来改 prod 降噪不会意外波及演示机）。
+logging:
+  level:
+    root: warn
+    com.blog: info

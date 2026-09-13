@@ -14,6 +14,15 @@ server:
 spring:
   application:
     name: blog-server
+  profiles:
+    # M13：compose 注入的 SPRING_PROFILES_ACTIVE=docker 此前是悬空引用
+    # （没有 application-docker.yml，application-prod.yml 的覆盖项在容器里
+    # 全部失效——见 docs/容器化部署验证报告.md §3.3）。修法=group 把 docker
+    # 结组到 prod：容器激活 docker 时级联加载 prod 全部覆盖，docker 的差异
+    # 微调放 application-docker.yml（后加载可覆盖 prod）。
+    # 注意：group 声明必须放主文档，profile 专属文档里写会启动即抛。
+    group:
+      docker: [prod]
   datasource:
     # 本机 MySQL 服务运行中；密码可由环境变量注入，默认空串（课设本机 root 无密码直连）
     # 注意：characterEncoding 要的是 **Java 字符集名**（UTF-8），不是 MySQL 排序字符集名——

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =====================================================================
+ 容器构建阶段专用 Maven 设置（M13 构建提速·国内网络根治项）。
+
+ 背景：maven:3.9-eclipse-temurin-21 镜像内置的是"裸" settings——一切走
+ Central（repo.maven.apache.org）。国内无代理环境下冷构建实测下载速率
+ 7~54 kB/s，整棵 Spring Boot 依赖树要 10~20 分钟；本机开发者不觉得慢
+ 是因为宿主机 Maven conf/settings.xml 早配了阿里云镜像，容器里没享受。
+
+ 方案：构建期 COPY 本文件覆盖 /root/.m2/settings.xml，central 镜像到
+ 阿里云 public 聚合仓（含 central + jcenter 代理，覆盖本项目全部依赖）。
+ mirrorOf 只写 central、不写 *：若将来 pom 声明自建仓库/私有仓，
+ 不会被本镜像劫持。海外环境/CI 命中不了阿里云时 Maven 按失败重试回落？
+ 不会——mirror 命中即单源。因此本文件仅影响"容器构建"这一条路径，
+ GitHub Actions（ ubuntu-latest，直连 Central 无碍）与本机 mvn 完全不经此文件。
+
+ 与 BuildKit cache mount 的关系：两者正交、叠加使用——镜像源解决"首次/
+ 冷缓存慢"，cache mount 解决"热缓存跨构建复用"。改 pom 后的重建即使
+ 有新依赖，也只从阿里云增量拉取。
+====================================================================== -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>aliyun-public</id>
+      <name>Aliyun Maven Mirror (for CN-based Docker builds)</name>
+      <url>https://maven.aliyun.com/repository/public</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
