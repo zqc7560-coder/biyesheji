@@ -53,6 +53,11 @@ services:
       redis-server --appendonly yes --appendfsync everysec
       --requirepass ${REDIS_PASS}
       --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # 【修复】healthcheck 里用的是容器侧展开的 $${REDIS_PASS}，必须把变量注入容器，
+    # 否则 redis-cli 用空密码认证 → WRONGPASS → 容器永远 unhealthy，
+    # 导致 blog-server 因 depends_on 健康门禁永远起不来（原 M12 编排缺此块）。
+    environment:
+      REDIS_PASS: ${REDIS_PASS}
     volumes:
       - redis-data:/data
     healthcheck:
