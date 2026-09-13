@@ -16,6 +16,10 @@ import CommentSection from '@/views/CommentSection.vue'
 import { renderMarkdown, extractToc, injectTocIds } from '@/utils/markdown'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// M15：代码高亮主题（lightweight github 风）——随本路由分包进 chunk，
+// 不放 main.js：只有详情页消费 pre.hljs 结构，登录页/列表页为它买单不值。
+// 管道侧（utils/markdown.js highlightCode）产出 span.hljs-*，配色全在这份 CSS。
+import 'highlight.js/styles/github.min.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -133,9 +137,22 @@ watch(() => route.params.id, load)
 .detail-body { display: flex; gap: 24px; }
 .prose { flex: 1; min-width: 0; line-height: 1.8; }
 .prose :deep(img) { max-width: 100%; }
-.prose :deep(pre) { background: #f6f8fa; padding: 12px; overflow: auto; border-radius: 6px; }
+/* M15：pre 底色交给 highlight.js github 主题（.hljs 规则），这里只管版式与滚动；
+   未接高亮的历史缓存 HTML（无 class="hljs" 的裸 pre）仍吃这条兜底底色 */
+.prose :deep(pre) { padding: 12px; overflow: auto; border-radius: 6px; line-height: 1.6; }
+.prose :deep(:not(pre) > code) { background: #f5f7fa; padding: 1px 5px; border-radius: 4px; font-size: .93em; }
 .toc { width: 200px; flex-shrink: 0; position: sticky; top: 70px; align-self: flex-start; font-size: 13px; }
 .toc a { display: block; color: #606266; text-decoration: none; padding: 3px 0; cursor: pointer; }
 .toc a:hover { color: #409eff; }
 .toc .toc-3 { padding-left: 14px; }
+/* M15 移动端断点系统回归：详情页窄屏三件事——TOC 收起（200px 侧栏在手机上是
+   挤压正文的负资产）、标题字号回落（960px 容器排版默认按桌面字号定的）、
+   代码块保持横向滚动（pre 是少数"允许溢出"的元素，正文不许溢出）。 */
+@media (max-width: 768px) {
+  .detail-page { margin: 16px auto; }
+  .detail-body { flex-direction: column; gap: 0; }
+  .toc { display: none; }
+  .detail-head h1 { font-size: 22px; }
+  .prose :deep(pre) { font-size: 12.5px; }
+}
 </style>

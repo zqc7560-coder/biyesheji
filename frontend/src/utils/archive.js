@@ -45,3 +45,34 @@ export function groupArchive(tree) {
 export function monthLabel(m) {
   return `${Number(m)} 月`
 }
+
+/**
+ * 归档页本地过滤（M15 归档体验打磨）：标题包含关键词（忽略大小写）才保留，
+ * 空月/空年整个剪掉——和 groupArchive"total=0 不渲染"同一口径。
+ *
+ * 为什么不接后端搜索接口：归档页数据口 /api/articles/archive 一次回全量
+ * （毕设量级 <1000 篇，几百 KB 封顶），本地即时过滤零请求、零防抖、输入即变，
+ * 比"跳回首页带 keyword"的动线短。数据量大时的正确演进是后端分页归档，
+ * 记为论文"演进方向"，不在本期实现。
+ *
+ * @param {Array<{year:string,total:number,months:Array}>} sections groupArchive 产物
+ * @param {string} keyword 过滤词（可空）
+ * @returns 同构的新数组（不改入参——Vue 响应式列表里就地改会引发渲染期副作用）
+ */
+export function filterArchive(sections, keyword) {
+  const kw = String(keyword ?? '').trim().toLowerCase()
+  const list = Array.isArray(sections) ? sections : []
+  if (!kw) return list.map((y) => ({ ...y, months: y.months.map((m) => ({ ...m })) }))
+  const hit = (a) => String(a.title ?? '').toLowerCase().includes(kw)
+  const out = []
+  for (const y of list) {
+    const months = []
+    for (const m of y.months) {
+      const items = (m.items || []).filter(hit)
+      if (items.length) months.push({ month: m.month, items })
+    }
+    const total = months.reduce((s, m) => s + m.items.length, 0)
+    if (total > 0) out.push({ year: y.year, total, months })
+  }
+  return out
+}

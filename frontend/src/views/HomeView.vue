@@ -8,10 +8,14 @@
  */
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { listArticles } from '@/api/article'
 import { fetchCategoryTree } from '@/api/category'
 import { fetchTags } from '@/api/tag'
 import { flattenCategoryTree, tagCloudFontSize } from '@/utils/tagCategory'
+// M15：搜索命中回显——highlightKeyword 全量转义后只注入 <mark>（utils/search.js
+// 头注释论证过为什么在前端做：后端回高亮 HTML 会给 DOMPurify 开 <mark> 白名单口子）
+import { highlightKeyword, validateSearchKeyword } from '@/utils/search'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,6 +71,9 @@ async function fetchList(page = 1) {
 
 /** 筛选变化同步回 URL：浏览器前进/后退与链接分享都以 query 为单一事实源 */
 function syncQuery() {
+  // M15：超长搜索词前置拦截（ngram 语义下超长串只会空转，toast 给出行动建议）
+  const check = validateSearchKeyword(filters.keyword)
+  if (!check.ok) { ElMessage.warning(check.message); return }
   router.replace({
     query: {
       categoryId: filters.categoryId || undefined,
@@ -137,9 +144,12 @@ watch(() => route.query, (q) => {
       <router-link v-for="a in data.list" :key="a.id" :to="`/articles/${a.id}`" class="card">
         <img v-if="a.cover" :src="a.cover" class="cover" alt="" />
         <div class="card-main">
-          <h2>{{ a.title }}</h2>
+          <!-- M15：搜索命中回显——highlightKeyword 只注入 <mark>、两侧输入全转义
+               （无关键词时退化为纯转义文本，v-html 消费点的安全口径与关键词有无无关） -->
+          <h2 v-html="highlightKeyword(a.title, filters.keyword)"></h2>
           <p class="summary">
-            {{ a.summary || '（暂无摘要）' }}
+            <span v-if="a.summary" v-html="highlightKeyword(a.summary, filters.keyword)"></span>
+            <span v-else>（暂无摘要）</span>
             <el-tag v-if="a.summarySource === 1" size="small" type="primary" effect="plain">AI 生成</el-tag>
           </p>
           <div class="meta">
@@ -194,9 +204,16 @@ watch(() => route.query, (q) => {
 .summary { color: #606266; font-size: 13px; margin: 0 0 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meta { color: #909399; font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pager { margin-top: 20px; justify-content: center; }
+/* M15：搜索命中标记配色（浏览器默认 <mark> 是荧光黄，与整站 Element 蓝灰系打架） */
+.card-list :deep(mark), .home mark { background: #fdf6ec; color: #b88230; padding: 0 1px; border-radius: 2px; }
 @media (max-width: 768px) {
   .layout { flex-direction: column; }
   .side { width: 100%; position: static; flex-direction: row; }
   .panel { flex: 1; }
+  /* M15：搜索框在窄屏不再固定 320px 上限——顶栏式一行里它该是伸缩主角 */
+  .toolbar .el-input { max-width: none; flex: 1; }
+  /* 封面图缩到位：手机上 140px 图 + 文字并排会把标题挤成"一字一行" */
+  .cover { width: 96px; height: 66px; }
+  .card-main h2 { font-size: 15px; }
 }
 </style>

@@ -160,4 +160,10 @@ async function submitRegister() {
 .login-card {
   width: 380px;
 }
+/* M15 移动端断点系统回归：380px 定宽卡在 375px 屏上会横向溢出（登录是认证
+   失效闸的落点页，手机上溢出=输入框被裁，属于"进不去门"级体验事故） */
+@media (max-width: 768px) {
+  .login-page { padding-top: 4vh; }
+  .login-card { width: 100%; max-width: 380px; margin: 0 12px; }
+}
 </style>

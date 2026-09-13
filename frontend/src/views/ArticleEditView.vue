@@ -30,6 +30,21 @@ import { uploadImage } from '@/api/file'
 import { aiButtonState, summaryFailureAction, summaryBackfillHint,
          mergeAiTagCandidates, appendTagsToText } from '@/utils/ai'
 import { useUserStore } from '@/stores/user'
+// M15：断点单一事实源（utils/responsive.js）——编辑器窄屏降级判定的输入。
+// 《部署与测试.md》W13 口径"编辑器移动端断点降级"：双栏预览在手机上各占
+// 不足 375px 宽（代码块横向滚动+文字折行，两头都不可读），窄屏关预览列
+// 保编辑列——工具栏/输入全功能保留（手机上存草稿改错字是真实场景，
+// "只读"一刀切会把写作入口焊死，是对 W13 口径的落地细化）。
+import { isMobileViewport, MOBILE_MAX } from '@/utils/responsive'
+
+/** 视口态响应式跟踪：matchMedia 比 resize 节流精确（只在跨断点沿触发） */
+const mobileView = ref(isMobileViewport())
+if (typeof window !== 'undefined' && window.matchMedia) {
+  const mq = window.matchMedia(`(max-width: ${MOBILE_MAX}px)`)
+  const onMq = (e) => { mobileView.value = e.matches }
+  mq.addEventListener ? mq.addEventListener('change', onMq) : mq.addListener(onMq)
+  onBeforeUnmount(() => (mq.removeEventListener ? mq.removeEventListener('change', onMq) : mq.removeListener(onMq)))
+}
 
 const userStore = useUserStore()
 
@@ -367,9 +382,11 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
         <span class="hint">M10：正文插图改用编辑器工具栏图片按钮（点击/拖拽/粘贴均可，走同一上传通道）</span>
       </div>
       <!-- M10 换装：md-editor-v3（工具栏+双栏预览+快捷键，onUploadImg 接 M8 通道）；
-           editorId 固定值防同页多实例 id 冲突。preview 默认开（等分双栏） -->
+           editorId 固定值防同页多实例 id 冲突。preview 默认开（等分双栏）；
+           M15：窄屏 preview=false——双栏在手机上是"两栏都不可读"，编辑列全宽优先 -->
       <MdEditor v-model="form.contentMd" editor-id="blog-editor" :toolbars-exclude="['github','save']"
-                :onUploadImg="onUploadImg" placeholder="# 用 Markdown 写作…" style="height: 56vh; min-height: 380px" />
+                :onUploadImg="onUploadImg" placeholder="# 用 Markdown 写作…" :preview="!mobileView"
+                style="height: 56vh; min-height: 380px" />
       <div class="actions">
         <el-button :loading="saving" @click="saveDraft">存草稿</el-button>
         <el-button type="primary" :loading="saving" @click="publish">发布</el-button>
@@ -429,4 +446,15 @@ onBeforeUnmount(() => clearTimeout(draftTimer))
 .cover-row { display: flex; align-items: center; gap: 10px; }
 .upload-btn { cursor: pointer; }
 .cover-prev { height: 40px; max-width: 120px; object-fit: cover; border: 1px solid #dcdfe6; border-radius: 4px; }
+/* M15 移动端断点系统回归：标签+分类行换行堆叠（160px 下拉在手机挤没）、
+   动作按钮行包行（AI 双按钮+存草稿+发布一行放不下五个按钮是窄屏重灾区）、
+   换装提示纯文案在窄屏让位给屏幕 */
+@media (max-width: 768px) {
+  .editor-page { margin: 12px auto; }
+  .row { flex-wrap: wrap; }
+  .row .el-select { width: 100%; }
+  .actions { flex-wrap: wrap; }
+  .cover-row { flex-wrap: wrap; }
+  .md-toolbar .hint { display: none; }
+}
 </style>

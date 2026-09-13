@@ -65,7 +65,7 @@ async function logout() {
               <img v-if="store.user?.avatar" :src="store.user.avatar" class="avatar" alt="" />
               <span>{{ store.user?.nickname || store.user?.username }}</span>
             </router-link>
-            <el-button size="small" @click="router.push('/user/articles/new')">✍ 写文章</el-button>
+            <el-button size="small" @click="router.push('/user/articles/new')">✍<span class="write-label"> 写文章</span></el-button>
             <el-button v-if="store.isAdmin" size="small" type="primary" plain
                        @click="router.push('/admin')">后台</el-button>
             <el-button size="small" link @click="logout">退出</el-button>
@@ -95,4 +95,15 @@ async function logout() {
 .avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
 .site-body { flex: 1; }
 .site-foot { text-align: center; color: #909399; font-size: 12px; padding: 16px; }
+/* M15 移动端断点系统回归：顶栏是全站最高频元素，窄屏三件事——
+   ① brand/nav/who 允许换行成两行（52px 固定高改 min-height，防挤压裁字）；
+   ② "写文章"按钮只留 ✍ 图标文案（动线保留、宽度砍掉，全站唯一入口不能藏进抽屉）；
+   ③ 元素间距收紧。后台 AdminLayout 面向桌面场景（部署与测试 W13 手工项口径），
+   刻意不做移动折叠——不是遗漏，是范围决策。 */
+@media (max-width: 768px) {
+  .head-inner { height: auto; min-height: 52px; flex-wrap: wrap; padding: 8px 12px; gap: 8px 12px; }
+  .navs { gap: 10px; }
+  .who { gap: 6px; }
+  .write-label { display: none; }
+}
 </style>
